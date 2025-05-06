@@ -56,36 +56,37 @@ impl PartialOrd for ResTime {
 
 // Bits:
 //
-// 00 => second
-// 01 => 2s [SKIP]
-// 02 => 4s [SKIP]
-// 03 => 5s
-// 04 => 10s [SKIP]
-// 05 => 15s
-// 06 => 30s
-// 07 => minute
-// 08 => 2m [SKIP]
-// 09 => 4m [SKIP]
-// 10 => 5m
-// 11 => 10m [SKIP]
-// 12 => 15m
-// 13 => 30m
-// 14 => hour
-// 15 => 2h [SKIP]
-// 16 => 3h
-// 17 => 6h
-// 18 => 12h (am/pm)
-// 19 => weekday
-// 20 => 2d [SKIP]
-// 21 => 4d [SKIP]
-// 22 => week-of-month
-// 23 => 2w [SKIP]
-// 24 => 4w [SKIP]
-// 25 => month
-// 26 => 2m [SKIP]
-// 27 => quarter
-// 28 => half
-// 29 => year
+// 00 => millis
+// 01 => 2ms [SKIP]
+// 02 => 4ms [SKIP]
+// 03 => 8ms [SKIP]
+// 04 => 10s of millis
+// 05 => 20ms [SKIP]
+// 06 => 40ms [SKIP]
+// 07 => 90ms [SKIP]
+// 08 => 100s of millis
+// 09 => 200ms [SKIP]
+// 10 => 400ms [SKIP]
+// 11 => 800ms [SKIP]
+// 12 => second
+// 13 => 2s [SKIP]
+// 14 => 4s [SKIP]
+// 15 => 5s
+// 16 => 10s [SKIP]
+// 17 => 15s
+// 18 => 30s
+// 19 => minute
+// 20 => 2m [SKIP]
+// 21 => 4m [SKIP]
+// 22 => 5m
+// 23 => 10m [SKIP]
+// 24 => 15m
+// 25 => 30m
+// 26 => hour
+// 27 => 2h [SKIP]
+// 28 => 3h
+// 29 => 6h
+// 30 => 12h (am/pm)
 
 impl ResTime {
     pub fn resolution(self) -> Resolution {
@@ -128,20 +129,16 @@ impl ResTime {
 
 impl Default for ResTime {
     fn default() -> Self {
-        Self::THIS_YEAR
+        Self::WHOLE_DAY
     }
 }
 
 impl ResTime {
-    pub const LAST_YEAR: Self =
-        ResTime(NonZero::new(0b00100000_00000000_00000000_00000000).unwrap());
-    pub const THIS_YEAR: Self =
-        ResTime(NonZero::new(0b01100000_00000000_00000000_00000000).unwrap());
-    pub const NEXT_YEAR: Self =
-        ResTime(NonZero::new(0b10100000_00000000_00000000_00000000).unwrap());
+    pub const WHOLE_DAY: Self =
+        ResTime(NonZero::new(0b10000000_00000000_00000000_00000000).unwrap());
 
     pub fn new() -> Self {
-        Self::THIS_YEAR
+        Self::WHOLE_DAY
     }
 }
 
@@ -167,30 +164,6 @@ impl ResTime {
         x <<= from.trailing_zeros();
         bits |= x as u32;
         Some(ResTime(NonZero::new(bits).unwrap()))
-    }
-
-    pub fn try_with_half(self, x: Half) -> Option<Self> {
-        self.with_res_bits(Resolution::Half, Resolution::Year, x.into())
-    }
-
-    pub fn try_with_quarter(self, x: Quarter) -> Option<Self> {
-        self.with_res_bits(Resolution::Quarter, Resolution::Year, x.into())
-    }
-
-    pub fn try_with_month(self, x: Month) -> Option<Self> {
-        let x: u8 = x.into();
-        let quarter = x / 3;
-        let month = x % 3;
-        self.with_res_bits(Resolution::Quarter, Resolution::Year, quarter)?
-            .with_res_bits(Resolution::Month, Resolution::Quarter, month)
-    }
-
-    pub fn try_with_week(self, x: Week) -> Option<Self> {
-        self.with_res_bits(Resolution::Week, Resolution::Month, x.into())
-    }
-
-    pub fn try_with_day(self, x: Weekday) -> Option<Self> {
-        self.with_res_bits(Resolution::Day, Resolution::Week, x.into())
     }
 
     pub fn try_with_meridian(self, x: Meridian) -> Option<Self> {
@@ -234,24 +207,30 @@ impl ResTime {
             )?
             .with_res_bits(Resolution::Second, Resolution::FiveSecond, x % 5)
     }
+
+    pub fn try_with_millis(self, x: u16) -> Option<Self> {
+        if x > 999 {
+            return None;
+        }
+        self.with_res_bits(
+            Resolution::HundredMilli,
+            Resolution::Second,
+            (x / 100) as u8,
+        )?
+        .with_res_bits(
+            Resolution::TenMilli,
+            Resolution::HundredMilli,
+            (x / 10) as u8,
+        )?
+        .with_res_bits(
+            Resolution::Millisecond,
+            Resolution::TenMilli,
+            (x % 10) as u8,
+        )
+    }
 }
 
 impl ResTime {
-    pub fn with_half(self, x: Half) -> Self {
-        self.try_with_half(x).unwrap_or(self)
-    }
-    pub fn with_quarter(self, x: Quarter) -> Self {
-        self.try_with_quarter(x).unwrap_or(self)
-    }
-    pub fn with_month(self, x: Month) -> Self {
-        self.try_with_month(x).unwrap_or(self)
-    }
-    pub fn with_week(self, x: Week) -> Self {
-        self.try_with_week(x).unwrap_or(self)
-    }
-    pub fn with_day(self, x: Weekday) -> Self {
-        self.try_with_day(x).unwrap_or(self)
-    }
     pub fn with_meridian(self, x: Meridian) -> Self {
         self.try_with_meridian(x).unwrap_or(self)
     }
@@ -270,7 +249,15 @@ impl ResTime {
     pub fn with_second(self, x: u8) -> Self {
         self.try_with_second(x).unwrap_or(self)
     }
+    /// 0-999
+    pub fn with_millis(self, x: u16) -> Self {
+        self.try_with_millis(x).unwrap_or(self)
+    }
 
+    /// 0-999
+    pub fn set_millis(&mut self, x: u16) {
+        *self = self.with_millis(x);
+    }
     /// 0-59
     pub fn set_second(&mut self, x: u8) {
         *self = self.with_second(x);
@@ -289,21 +276,6 @@ impl ResTime {
     pub fn set_meridian(&mut self, x: Meridian) {
         *self = self.with_meridian(x);
     }
-    pub fn set_day(&mut self, x: Weekday) {
-        *self = self.with_day(x);
-    }
-    pub fn set_week(&mut self, x: Week) {
-        *self = self.with_week(x);
-    }
-    pub fn set_month(&mut self, x: Month) {
-        *self = self.with_month(x);
-    }
-    pub fn set_quarter(&mut self, x: Quarter) {
-        *self = self.with_quarter(x);
-    }
-    pub fn set_half(&mut self, x: Half) {
-        *self = self.with_half(x);
-    }
 }
 
 impl ResTime {
@@ -320,6 +292,18 @@ impl ResTime {
         Some(bits as u8)
     }
 
+    /// 0-999
+    pub fn millis(self) -> Option<u16> {
+        let mut ret = self.get_res_bits(Resolution::HundredMilli, Resolution::Second)? as u16 * 100;
+        ret += self
+            .get_res_bits(Resolution::TenMilli, Resolution::HundredMilli)
+            .unwrap_or(0) as u16
+            * 10;
+        ret += self
+            .get_res_bits(Resolution::Millisecond, Resolution::TenMilli)
+            .unwrap_or(0) as u16;
+        Some(ret)
+    }
     /// 0-59
     // FIXME: Returns None when resolution=30s
     pub fn second(self) -> Option<u8> {
@@ -363,64 +347,21 @@ impl ResTime {
         let x = self.get_res_bits(Resolution::Meridian, Resolution::Day)?;
         Some(x.try_into().unwrap())
     }
-    pub fn day(self) -> Option<Weekday> {
-        let x = self.get_res_bits(Resolution::Day, Resolution::Week)?;
-        Some(x.try_into().unwrap())
-    }
-    pub fn week(self) -> Option<Week> {
-        let x = self.get_res_bits(Resolution::Week, Resolution::Month)?;
-        Some(x.try_into().unwrap())
-    }
-    pub fn month(self) -> Option<Month> {
-        let mo = self.get_res_bits(Resolution::Month, Resolution::Quarter)?;
-        let qu = self.get_res_bits(Resolution::Quarter, Resolution::Year)?;
-        let x = qu * 3 + mo;
-        Some(x.try_into().unwrap())
-    }
-    pub fn quarter(self) -> Option<Quarter> {
-        let x = self.get_res_bits(Resolution::Quarter, Resolution::Year)?;
-        Some(x.try_into().unwrap())
-    }
-    pub fn half(self) -> Option<Half> {
-        let x = self.get_res_bits(Resolution::Half, Resolution::Year)?;
-        Some(x.try_into().unwrap())
-    }
-    fn year(self) -> Year {
-        let mut bits = self.0.get();
-        bits >>= Resolution::Year.trailing_zeros() + 1;
-        let n_bits = Resolution::Year.available_bits();
-        bits &= !(u32::MAX << n_bits);
-        (bits as u8).try_into().unwrap()
-    }
 }
 
 impl fmt::Display for ResTime {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.year())?;
-        if let Some(month) = self.month() {
-            write!(f, "{month}")?;
-        } else if let Some(quarter) = self.quarter() {
-            write!(f, "{quarter}")?;
-            return Ok(());
-        } else if let Some(half) = self.half() {
-            write!(f, "{half}")?;
-            return Ok(());
-        }
-        let Some(week) = self.week() else {
-            return Ok(());
-        };
-        write!(f, "-{week}")?;
-        let Some(day) = self.day() else { return Ok(()) };
-        write!(f, " {day}")?;
         let Some(hour) = self.hour() else {
             if let Some(x) = self.time_of_day() {
-                write!(f, " {x}")?;
+                write!(f, "{x}")?;
             } else if let Some(x) = self.meridian() {
-                write!(f, " {x}")?;
+                write!(f, "{x}")?;
+            } else {
+                write!(f, "whole day")?;
             }
             return Ok(());
         };
-        write!(f, " {hour:02}")?;
+        write!(f, "{hour:02}")?;
         if let Some(minute) = self.minute() {
             write!(f, ":{minute:02}")?;
         } else {
@@ -430,29 +371,29 @@ impl fmt::Display for ResTime {
         if let Some(second) = self.second() {
             write!(f, ":{second:02}")?;
         }
+        if let Some(millis) = self.millis() {
+            eprintln!("{millis}");
+            match self.resolution() {
+                Resolution::HundredMilli => write!(f, ".{:01}", millis / 100)?,
+                Resolution::TenMilli => write!(f, ".{:02}", millis / 10)?,
+                Resolution::Millisecond => write!(f, ".{millis:03}")?,
+                _ => panic!(),
+            }
+        }
         Ok(())
     }
 }
 
-/// There are 17 resolutions available:
+/// There are 13 resolutions available:
 ///
 /// * second, 5s, 15s, 30s
 /// * minute, 5m, 15m, 30m
 /// * hour, 3h, 6h, 12h (am/pm)
-/// * day (mon/tues/...)
-/// * week (w1, ..., w5)
-/// * month, quarter, half
-/// * year
 ///
 /// The `Ord` impl follows natural-language: `x < y` means that x is
 /// lower-resolution than y.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Linearize)]
 pub enum Resolution {
-    Year,
-    Half,
-    Quarter,
-    Month,
-    Week,
     Day,
     Meridian,
     TimeOfDay,
@@ -466,6 +407,11 @@ pub enum Resolution {
     FifteenSecond,
     FiveSecond,
     Second,
+    // TODO: We could add 500ms
+    HundredMilli,
+    // TODO: We could add 50ms
+    TenMilli,
+    Millisecond,
 }
 
 impl Resolution {
@@ -481,24 +427,22 @@ impl Resolution {
 impl Resolution {
     fn available_bits(self) -> u8 {
         match self {
-            Resolution::Year => 2,
-            Resolution::Half => 3,
-            Resolution::Quarter => 4,
-            Resolution::Month => 6,
-            Resolution::Week => 9,
-            Resolution::Day => 12,
-            Resolution::Meridian => 13,
-            Resolution::TimeOfDay => 14,
-            Resolution::ThreeHour => 15,
-            Resolution::Hour => 17,
-            Resolution::ThirtyMinute => 18,
-            Resolution::FifteenMinute => 19,
-            Resolution::FiveMinute => 21,
-            Resolution::Minute => 24,
-            Resolution::ThirtySecond => 25,
-            Resolution::FifteenSecond => 26,
-            Resolution::FiveSecond => 28,
-            Resolution::Second => 31,
+            Resolution::Day => 0,
+            Resolution::Meridian => 1,
+            Resolution::TimeOfDay => 2,
+            Resolution::ThreeHour => 3,
+            Resolution::Hour => 5,
+            Resolution::ThirtyMinute => 6,
+            Resolution::FifteenMinute => 7,
+            Resolution::FiveMinute => 9,
+            Resolution::Minute => 12,
+            Resolution::ThirtySecond => 13,
+            Resolution::FifteenSecond => 14,
+            Resolution::FiveSecond => 16,
+            Resolution::Second => 19,
+            Resolution::HundredMilli => 23,
+            Resolution::TenMilli => 27,
+            Resolution::Millisecond => 31,
         }
     }
 
@@ -520,36 +464,29 @@ impl Resolution {
 
     fn from_trailing_zeros(x: u8) -> Self {
         match x {
-            0 => Resolution::Second,
-            3 => Resolution::FiveSecond,
-            5 => Resolution::FifteenSecond,
-            6 => Resolution::ThirtySecond,
-            7 => Resolution::Minute,
-            10 => Resolution::FiveMinute,
-            12 => Resolution::FifteenMinute,
-            13 => Resolution::ThirtyMinute,
-            14 => Resolution::Hour,
-            16 => Resolution::ThreeHour,
-            17 => Resolution::TimeOfDay,
-            18 => Resolution::Meridian,
-            19 => Resolution::Day,
-            22 => Resolution::Week,
-            25 => Resolution::Month,
-            27 => Resolution::Quarter,
-            28 => Resolution::Half,
-            29 => Resolution::Year,
+            00 => Resolution::Millisecond,
+            04 => Resolution::TenMilli,
+            08 => Resolution::HundredMilli,
+            12 => Resolution::Second,
+            15 => Resolution::FiveSecond,
+            17 => Resolution::FifteenSecond,
+            18 => Resolution::ThirtySecond,
+            19 => Resolution::Minute,
+            22 => Resolution::FiveMinute,
+            24 => Resolution::FifteenMinute,
+            25 => Resolution::ThirtyMinute,
+            26 => Resolution::Hour,
+            28 => Resolution::ThreeHour,
+            29 => Resolution::TimeOfDay,
+            30 => Resolution::Meridian,
+            31 => Resolution::Day,
             _ => panic!(),
         }
     }
 
     fn subdivision(self) -> u8 {
         match self {
-            Resolution::Year => 4,
-            Resolution::Half => 2,
-            Resolution::Quarter => 2,
-            Resolution::Month => 3,
-            Resolution::Week => 5,
-            Resolution::Day => 7,
+            Resolution::Day => 0,
             Resolution::Meridian => 2,
             Resolution::TimeOfDay => 2,
             Resolution::ThreeHour => 2,
@@ -562,6 +499,9 @@ impl Resolution {
             Resolution::FifteenSecond => 2,
             Resolution::FiveSecond => 3,
             Resolution::Second => 5,
+            Resolution::HundredMilli => 10,
+            Resolution::TenMilli => 10,
+            Resolution::Millisecond => 10,
         }
     }
 
@@ -663,7 +603,9 @@ mod tests {
     fn test_enough_bits() {
         for res in Resolution::variants() {
             let has = res.n_bits() as u32;
-            let required = if res.subdivision().is_power_of_two() {
+            let required = if res.subdivision() == 0 {
+                0
+            } else if res.subdivision().is_power_of_two() {
                 (res.subdivision() as u32).ilog2()
             } else {
                 (res.subdivision() as u32).ilog2() + 1
@@ -678,13 +620,13 @@ mod tests {
 
     #[test]
     fn test_mask() {
-        assert_eq!(Resolution::Second.mask(), 0b1110);
-        assert_eq!(Resolution::FiveSecond.mask(), 0b110000);
-        assert_eq!(Resolution::FifteenSecond.mask(), 0b1000000);
-        assert_eq!(Resolution::ThirtySecond.mask(), 0b10000000);
+        assert_eq!(Resolution::Second.mask(), 0b1110_000000000000);
+        assert_eq!(Resolution::FiveSecond.mask(), 0b110000_000000000000);
+        assert_eq!(Resolution::FifteenSecond.mask(), 0b1000000_000000000000);
+        assert_eq!(Resolution::ThirtySecond.mask(), 0b10000000_000000000000);
         assert_eq!(
             Resolution::mask_all(Resolution::Second, Resolution::Minute),
-            0b11111110
+            0b11111110_000000000000
         );
     }
 
@@ -704,36 +646,15 @@ mod tests {
     #[test]
     fn test_set_get() {
         let mut x = ResTime::default();
-        for half in Half::variants() {
-            let x = x.with_half(half);
-            assert_eq!(x.half(), Some(half), "{:#b}", x.0);
-        }
-        for quarter in Quarter::variants() {
-            assert_eq!(x.with_quarter(quarter).quarter(), Some(quarter));
-        }
-        for month in Month::variants() {
-            let x = x.with_month(month);
-            assert_eq!(x.month(), Some(month), "{:#b}", x.0);
-        }
-        x.set_month(Month::May);
-        for week in Week::variants() {
-            let x = x.with_week(week);
-            assert_eq!(x.week(), Some(week), "{:#b}", x.0);
-        }
-        x.set_week(Week::W3);
-        for day in Weekday::variants() {
-            let x = x.with_day(day);
-            assert_eq!(x.day(), Some(day), "{:#b}", x.0);
-        }
-        x.set_day(Weekday::Tuesday);
-        for hour in 0..23 {
-            let x = x.with_hour(hour);
-            assert_eq!(x.hour(), Some(hour), "{:#b}", x.0);
-        }
         x.set_hour(11);
         for minute in 0..59 {
             let x = x.with_minute(minute);
             assert_eq!(x.minute(), Some(minute), "{:#b}", x.0);
+        }
+        x.set_minute(43);
+        for second in 0..59 {
+            let x = x.with_second(second);
+            assert_eq!(x.second(), Some(second), "{:#b}", x.0);
         }
     }
 
@@ -747,81 +668,60 @@ mod tests {
     #[test]
     fn test_fmt() {
         let mut x = ResTime::default();
-        assert_eq!(x.to_string(), "");
-        assert_eq!(x.with_half(Half::H2).to_string(), "H2");
-        assert_eq!(x.with_quarter(Quarter::Q3).to_string(), "Q3");
-        x.set_month(Month::April);
-        assert_eq!(x.to_string(), "Apr");
-        x.set_week(Week::W3);
-        assert_eq!(x.to_string(), "Apr-w3");
-        x.set_day(Weekday::Tuesday);
-        assert_eq!(x.to_string(), "Apr-w3 Tue");
+        assert_eq!(x.to_string(), "whole day");
         x.set_hour(11);
-        assert_eq!(x.to_string(), "Apr-w3 Tue 11:00");
+        assert_eq!(x.to_string(), "11:00");
         x.set_minute(56);
-        assert_eq!(x.to_string(), "Apr-w3 Tue 11:56");
+        assert_eq!(x.to_string(), "11:56");
         x.set_second(24);
-        assert_eq!(x.to_string(), "Apr-w3 Tue 11:56:24");
-        eprintln!("{:#b}", x.0);
+        assert_eq!(x.to_string(), "11:56:24");
         x.reduce_to(Resolution::FiveSecond);
-        eprintln!("{:#b}", x.0);
-        assert_eq!(x.to_string(), "Apr-w3 Tue 11:56:20");
+        assert_eq!(x.to_string(), "11:56:20");
         x.reduce_to(Resolution::FifteenSecond);
-        assert_eq!(x.to_string(), "Apr-w3 Tue 11:56:15");
+        assert_eq!(x.to_string(), "11:56:15");
         x.reduce_to(Resolution::Minute);
-        assert_eq!(x.to_string(), "Apr-w3 Tue 11:56");
+        assert_eq!(x.to_string(), "11:56");
         x.reduce_to(Resolution::FiveMinute);
-        assert_eq!(x.to_string(), "Apr-w3 Tue 11:55");
+        assert_eq!(x.to_string(), "11:55");
         x.reduce_to(Resolution::FifteenMinute);
-        assert_eq!(x.to_string(), "Apr-w3 Tue 11:45");
+        assert_eq!(x.to_string(), "11:45");
         x.reduce_to(Resolution::Hour);
-        assert_eq!(x.to_string(), "Apr-w3 Tue 11:00");
+        assert_eq!(x.to_string(), "11:00");
         x.reduce_to(Resolution::Day);
-        assert_eq!(x.to_string(), "Apr-w3 Tue");
-        x.reduce_to(Resolution::Week);
-        assert_eq!(x.to_string(), "Apr-w3");
-        x.reduce_to(Resolution::Month);
-        assert_eq!(x.to_string(), "Apr");
-        x.reduce_to(Resolution::Quarter);
-        assert_eq!(x.to_string(), "Q2");
-        x.reduce_to(Resolution::Half);
-        assert_eq!(x.to_string(), "H1");
-        x.reduce_to(Resolution::Year);
-        assert_eq!(x.to_string(), "");
+        assert_eq!(x.to_string(), "whole day");
     }
 
     #[test]
     fn example() {
         let t = ResTime::new()
-            .with_month(Month::October)
-            .with_week(Week::W2)
-            .with_day(Weekday::Thursday)
             .with_hour(15)
             .with_minute(7)
-            .with_second(24);
-        assert_eq!(t.to_string(), "Oct-w2 Thu 15:07:24");
+            .with_second(24)
+            .with_millis(75);
+        eprintln!("{:#b}", t.0);
+        eprintln!("{:?}", t.resolution());
+        assert_eq!(t.to_string(), "15:07:24.075");
         for res in Resolution::variants() {
+            eprintln!("{res:?}");
             let actual = t.with_res(res).unwrap().to_string();
             let expected = match res {
-                Resolution::Second => "Oct-w2 Thu 15:07:24",
-                Resolution::FiveSecond => "Oct-w2 Thu 15:07:20",
-                Resolution::FifteenSecond => "Oct-w2 Thu 15:07:15",
-                // FIXME: Should be: "Oct-w2 Thu 15:07:00",
-                Resolution::ThirtySecond => "Oct-w2 Thu 15:07",
-                Resolution::Minute => "Oct-w2 Thu 15:07",
-                Resolution::FiveMinute => "Oct-w2 Thu 15:05",
-                Resolution::FifteenMinute => "Oct-w2 Thu 15:00",
-                Resolution::ThirtyMinute => "Oct-w2 Thu 15:00",
-                Resolution::Hour => "Oct-w2 Thu 15:00",
-                Resolution::ThreeHour => "Oct-w2 Thu 15:00",
-                Resolution::TimeOfDay => "Oct-w2 Thu afternoon",
-                Resolution::Meridian => "Oct-w2 Thu PM",
-                Resolution::Day => "Oct-w2 Thu",
-                Resolution::Week => "Oct-w2",
-                Resolution::Month => "Oct",
-                Resolution::Quarter => "Q4",
-                Resolution::Half => "H2",
-                Resolution::Year => "",
+                Resolution::Millisecond => "15:07:24.075",
+                Resolution::TenMilli => "15:07:24.07",
+                Resolution::HundredMilli => "15:07:24.0",
+                Resolution::Second => "15:07:24",
+                Resolution::FiveSecond => "15:07:20",
+                Resolution::FifteenSecond => "15:07:15",
+                // FIXME: Should be: "15:07:00",
+                Resolution::ThirtySecond => "15:07",
+                Resolution::Minute => "15:07",
+                Resolution::FiveMinute => "15:05",
+                Resolution::FifteenMinute => "15:00",
+                Resolution::ThirtyMinute => "15:00",
+                Resolution::Hour => "15:00",
+                Resolution::ThreeHour => "15:00",
+                Resolution::TimeOfDay => "afternoon",
+                Resolution::Meridian => "PM",
+                Resolution::Day => "whole day",
             };
             assert_eq!(actual, expected);
         }
