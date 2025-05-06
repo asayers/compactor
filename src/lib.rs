@@ -55,6 +55,16 @@ impl PartialOrd for ResTime {
     }
 }
 
+impl From<jiff::civil::Time> for ResTime {
+    fn from(t: jiff::civil::Time) -> Self {
+        ResTime::new()
+            .with_hour(t.hour() as u8)
+            .with_minute(t.minute() as u8)
+            .with_second(t.second() as u8)
+            .with_millis(t.millisecond() as u16)
+    }
+}
+
 // Bits:
 //
 // 00 => millis
