@@ -9,6 +9,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
+name = "compactor"
+version = "0.1.0"
+dependencies = [
+ "jiff",
+ "linearize",
+]
+
+[[package]]
 name = "jiff"
 version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -141,14 +149,6 @@ name = "rand_core"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "99d9a13982dcf210057a8a78572b2217b667c3beacbf3a0d8b454f6f82837d38"
-
-[[package]]
-name = "restime"
-version = "0.1.0"
-dependencies = [
- "jiff",
- "linearize",
-]
 
 [[package]]
 name = "serde"
