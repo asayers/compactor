@@ -1,8 +1,9 @@
+mod resolution;
 mod types;
 
+use crate::resolution::*;
 use crate::types::*;
-use linearize::{Linearize, LinearizeExt};
-use std::{fmt, num::NonZero, ops::Div};
+use std::{fmt, num::NonZero};
 
 /// A time with a resolution
 ///
@@ -156,7 +157,8 @@ impl ResTime {
 fn set_res_bits(bits: &mut u32, res: Resolution, x: &mut u32) {
     // Clear the range.  There shouldn't be any actual data there, but the
     // "data starts here" marker bit might be in here.
-    *bits &= !res.mask();
+    let mask = !(u32::MAX << res.n_bits()) << res.trailing_zeros() + 1;
+    *bits &= !mask;
     let subdivision = res.subdivision() as u32;
     *bits |= (*x % subdivision) << res.trailing_zeros() + 1;
     *x /= subdivision;
@@ -242,8 +244,11 @@ impl ResTime {
         let mut x = x as u32;
         let mut ret = self.0.get();
         set_res_bits(&mut ret, Resolution::Millisecond, &mut x);
+        set_res_bits(&mut ret, Resolution::FiveMilli, &mut x);
         set_res_bits(&mut ret, Resolution::TenMilli, &mut x);
+        set_res_bits(&mut ret, Resolution::FiftyMilli, &mut x);
         set_res_bits(&mut ret, Resolution::HundredMilli, &mut x);
+        set_res_bits(&mut ret, Resolution::FiveHundredMilli, &mut x);
         Some(ResTime::from_bits(ret, Resolution::Millisecond))
     }
 }
@@ -312,8 +317,11 @@ impl ResTime {
     /// 0-999
     pub fn millis(self) -> u16 {
         let mut ret = 0;
+        self.add_res(Resolution::FiveHundredMilli, &mut ret);
         self.add_res(Resolution::HundredMilli, &mut ret);
+        self.add_res(Resolution::FiftyMilli, &mut ret);
         self.add_res(Resolution::TenMilli, &mut ret);
+        self.add_res(Resolution::FiveMilli, &mut ret);
         self.add_res(Resolution::Millisecond, &mut ret);
         ret as u16
     }
@@ -374,15 +382,6 @@ impl fmt::Debug for ResTime {
         }
         map.finish()?;
         f.write_str(")")?;
-
-        // f.write_str("ResTime::new()")?;
-        // for res in Resolution::range(self.resolution(), Resolution::Day).rev() {
-        //     let mut bits = self.0.get();
-        //     bits >>= res.trailing_zeros() + 1;
-        //     let n_bits = res.n_bits();
-        //     bits &= !(u32::MAX << n_bits);
-        //     write!(f, ".with({res:?}, {})", bits)?;
-        // }
         Ok(())
     }
 }
@@ -399,9 +398,15 @@ impl fmt::Display for ResTime {
                     write!(f, ":{:02}", self.second())?;
                 }
                 match self.resolution() {
-                    Resolution::HundredMilli => write!(f, ".{:01}", self.millis() / 100)?,
-                    Resolution::TenMilli => write!(f, ".{:02}", self.millis() / 10)?,
-                    Resolution::Millisecond => write!(f, ".{:03}", self.millis())?,
+                    Resolution::HundredMilli | Resolution::FiveHundredMilli => {
+                        write!(f, ".{:01}", self.millis() / 100)?
+                    }
+                    Resolution::TenMilli | Resolution::FiftyMilli => {
+                        write!(f, ".{:02}", self.millis() / 10)?
+                    }
+                    Resolution::Millisecond | Resolution::FiveMilli => {
+                        write!(f, ".{:03}", self.millis())?
+                    }
                     _ => (),
                 }
                 Ok(())
@@ -410,256 +415,10 @@ impl fmt::Display for ResTime {
     }
 }
 
-/// There are 13 resolutions available:
-///
-/// * second, 5s, 15s, 30s
-/// * minute, 5m, 15m, 30m
-/// * hour, 3h, 6h, 12h (am/pm)
-///
-/// The `Ord` impl follows natural-language: `x < y` means that x is
-/// lower-resolution than y.
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Linearize)]
-pub enum Resolution {
-    Day,
-    AmPm,
-    TimeOfDay,
-    ThreeHour,
-    Hour,
-    ThirtyMinute,
-    FifteenMinute,
-    FiveMinute,
-    Minute,
-    ThirtySecond,
-    FifteenSecond,
-    FiveSecond,
-    Second,
-    // TODO: We could add 500ms
-    HundredMilli,
-    // TODO: We could add 50ms
-    TenMilli,
-    Millisecond,
-}
-
-impl Resolution {
-    pub fn coarser(self) -> Option<Self> {
-        Resolution::from_linear(self.linearize().checked_sub(1)?)
-    }
-
-    pub fn finer(self) -> Option<Self> {
-        Resolution::from_linear(self.linearize().checked_add(1)?)
-    }
-}
-
-impl Resolution {
-    fn available_bits(self) -> u8 {
-        match self {
-            Resolution::Day => 0,
-            Resolution::AmPm => 1,
-            Resolution::TimeOfDay => 2,
-            Resolution::ThreeHour => 3,
-            Resolution::Hour => 5,
-            Resolution::ThirtyMinute => 6,
-            Resolution::FifteenMinute => 7,
-            Resolution::FiveMinute => 9,
-            Resolution::Minute => 12,
-            Resolution::ThirtySecond => 13,
-            Resolution::FifteenSecond => 14,
-            Resolution::FiveSecond => 16,
-            Resolution::Second => 19,
-            Resolution::HundredMilli => 23,
-            Resolution::TenMilli => 27,
-            Resolution::Millisecond => 31,
-        }
-    }
-
-    fn n_bits(self) -> u8 {
-        self.available_bits() - self.coarser().map_or(0, |x| x.available_bits())
-    }
-
-    fn mask(self) -> u32 {
-        !(u32::MAX << self.n_bits()) << self.trailing_zeros() + 1
-    }
-
-    fn trailing_zeros(self) -> u8 {
-        31 - self.available_bits()
-    }
-
-    fn from_trailing_zeros(x: u8) -> Self {
-        match x {
-            00 => Resolution::Millisecond,
-            04 => Resolution::TenMilli,
-            08 => Resolution::HundredMilli,
-            12 => Resolution::Second,
-            15 => Resolution::FiveSecond,
-            17 => Resolution::FifteenSecond,
-            18 => Resolution::ThirtySecond,
-            19 => Resolution::Minute,
-            22 => Resolution::FiveMinute,
-            24 => Resolution::FifteenMinute,
-            25 => Resolution::ThirtyMinute,
-            26 => Resolution::Hour,
-            28 => Resolution::ThreeHour,
-            29 => Resolution::TimeOfDay,
-            30 => Resolution::AmPm,
-            31 => Resolution::Day,
-            _ => panic!(),
-        }
-    }
-
-    fn subdivision(self) -> u8 {
-        match self {
-            Resolution::Day => 0,
-            Resolution::AmPm => 2,
-            Resolution::TimeOfDay => 2,
-            Resolution::ThreeHour => 2,
-            Resolution::Hour => 3,
-            Resolution::ThirtyMinute => 2,
-            Resolution::FifteenMinute => 2,
-            Resolution::FiveMinute => 3,
-            Resolution::Minute => 5,
-            Resolution::ThirtySecond => 2,
-            Resolution::FifteenSecond => 2,
-            Resolution::FiveSecond => 3,
-            Resolution::Second => 5,
-            Resolution::HundredMilli => 10,
-            Resolution::TenMilli => 10,
-            Resolution::Millisecond => 10,
-        }
-    }
-
-    /// `from` is inclusive, `to` is exclusive.  `from` should be finer than
-    /// `to`.
-    fn range(from: Resolution, to: Resolution) -> impl DoubleEndedIterator<Item = Resolution> {
-        let from = from.linearize();
-        let to = to.linearize();
-        Resolution::variants()
-            .skip(to + 1)
-            .take(from.saturating_sub(to))
-            .rev()
-    }
-}
-
-impl Div for Resolution {
-    type Output = u32;
-
-    fn div(self, rhs: Self) -> Self::Output {
-        let mut ret = 1;
-        for res in Resolution::range(rhs, self) {
-            ret *= res.subdivision() as u32;
-        }
-        ret
-    }
-}
-
-// #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-// pub struct Resolution(u8);
-
-// impl Resolution {
-//     pub const MAX: Resolution = Resolution(29);
-
-//     pub const YEAR: Resolution = Resolution(29);
-//     pub const DAY: Resolution = Resolution(19);
-//     pub const MINUTE: Resolution = Resolution(7);
-//     pub const SECOND: Resolution = Resolution(0);
-
-//     fn is_valid(self) -> bool {
-//         !matches!(
-//             self.0,
-//             1 | 2 | 4 | 8 | 9 | 11 | 15 | 20 | 21 | 23 | 24 | 26 | 29..
-//         )
-//     }
-
-//     // fn is_major(self) -> bool {
-//     //     matches!(self.0, 0 | 7 | 14 | 19 | 22 | 25)
-//     // }
-
-//     pub fn next_coarser(mut self) -> Option<Self> {
-//         loop {
-//             self.0 = self.0.checked_sub(1)?;
-//             if self.is_valid() {
-//                 return Some(self);
-//             }
-//         }
-//     }
-// }
-
-// impl fmt::Display for Resolution {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         match self.0 {
-//             0 => f.write_str("second"),
-//             3 => f.write_str("5-second"),
-//             5 => f.write_str("15-second"),
-//             6 => f.write_str("30-second"),
-//             7 => f.write_str("minute"),
-//             10 => f.write_str("5-minute"),
-//             12 => f.write_str("15-minute"),
-//             13 => f.write_str("30-minute"),
-//             14 => f.write_str("hour"),
-//             15 => f.write_str("2-hour"),
-//             16 => f.write_str("3-hour"),
-//             17 => f.write_str("6-hour"),
-//             18 => f.write_str("am/pm"),
-//             19 => f.write_str("day"),
-//             22 => f.write_str("week"),
-//             25 => f.write_str("month"),
-//             27 => f.write_str("quarter"),
-//             28 => f.write_str("half"),
-//             29 => f.write_str("year"),
-//             _ => panic!(),
-//         }
-//     }
-// }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_x_in_y() {
-        assert_eq!(Resolution::Minute / Resolution::Second, 60);
-        assert_eq!(Resolution::Hour / Resolution::Minute, 60);
-        assert_eq!(Resolution::Day / Resolution::Hour, 24);
-    }
-
-    #[test]
-    fn test_enough_bits() {
-        for res in Resolution::variants() {
-            let has = res.n_bits() as u32;
-            let required = if res.subdivision() == 0 {
-                0
-            } else if res.subdivision().is_power_of_two() {
-                (res.subdivision() as u32).ilog2()
-            } else {
-                (res.subdivision() as u32).ilog2() + 1
-            };
-            assert!(
-                has == required,
-                "{res:?}: {has} != log2({})={required}",
-                res.subdivision()
-            );
-        }
-    }
-
-    #[test]
-    fn test_mask() {
-        assert_eq!(Resolution::Second.mask(), 0b1110_000000000000);
-        assert_eq!(Resolution::FiveSecond.mask(), 0b110000_000000000000);
-        assert_eq!(Resolution::FifteenSecond.mask(), 0b1000000_000000000000);
-        assert_eq!(Resolution::ThirtySecond.mask(), 0b10000000_000000000000);
-    }
-
-    #[test]
-    fn test_range() {
-        assert_eq!(
-            Resolution::range(Resolution::Second, Resolution::Minute).collect::<Vec<_>>(),
-            vec![
-                Resolution::Second,
-                Resolution::FiveSecond,
-                Resolution::FifteenSecond,
-                Resolution::ThirtySecond,
-            ]
-        );
-    }
+    use linearize::LinearizeExt;
 
     #[test]
     fn test_set_get() {
@@ -682,13 +441,6 @@ mod tests {
         for millis in 0..1000 {
             let x = x.with_millis(millis);
             assert_eq!(x.millis(), millis, "{:#b}", x.0);
-        }
-    }
-
-    #[test]
-    fn test_trailing_zeros() {
-        for res in Resolution::variants() {
-            assert_eq!(Resolution::from_trailing_zeros(res.trailing_zeros()), res)
         }
     }
 
@@ -772,16 +524,19 @@ mod tests {
             .with_hour(15)
             .with_minute(7)
             .with_second(24)
-            .with_millis(75);
+            .with_millis(76);
         eprintln!("{t}, res={:?}, {:#b}", t.resolution(), t.0);
-        assert_eq!(t.to_string(), "15:07:24.075");
+        assert_eq!(t.to_string(), "15:07:24.076");
         for res in Resolution::variants() {
             let actual = t.with_res(res).unwrap().to_string();
             eprintln!("{res:?} => {:?} => {}", t.with_res(res), actual);
             let expected = match res {
-                Resolution::Millisecond => "15:07:24.075",
+                Resolution::Millisecond => "15:07:24.076",
+                Resolution::FiveMilli => "15:07:24.075",
                 Resolution::TenMilli => "15:07:24.07",
+                Resolution::FiftyMilli => "15:07:24.05",
                 Resolution::HundredMilli => "15:07:24.0",
+                Resolution::FiveHundredMilli => "15:07:24.0",
                 Resolution::Second => "15:07:24",
                 Resolution::FiveSecond => "15:07:20",
                 Resolution::FifteenSecond => "15:07:15",
