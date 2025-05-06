@@ -41,7 +41,7 @@ use std::{fmt, num::NonZero, ops::Div};
 /// resolution. Within a resolution, `ResTime`s are totally ordered in the
 /// expected way. If you want to compare values of different resolutions, see
 /// [ResTime::coarse_cmp].
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct ResTime(NonZero<u32>);
 
 impl PartialOrd for ResTime {
@@ -93,8 +93,11 @@ impl ResTime {
         Resolution::from_trailing_zeros(self.0.trailing_zeros() as u8)
     }
 
+    /// Has no effect if `res` is higher than the current resolution
     pub fn reduce_to(&mut self, res: Resolution) {
-        assert!(res <= self.resolution());
+        if res >= self.resolution() {
+            return;
+        }
         let mut x = self.0.get();
         x &= u32::MAX << res.trailing_zeros();
         x |= 1 << res.trailing_zeros();
@@ -109,6 +112,14 @@ impl ResTime {
         x &= u32::MAX << res.trailing_zeros();
         x |= 1 << res.trailing_zeros();
         Some(ResTime(NonZero::new(x).unwrap()))
+    }
+
+    /// Expects the data bits to be in their correct positions, but for there to
+    /// be no resolution marker.
+    fn from_bits(mut x: u32, res: Resolution) -> Self {
+        x &= u32::MAX << res.trailing_zeros();
+        x |= 1 << res.trailing_zeros();
+        ResTime(NonZero::new(x).unwrap())
     }
 
     /// Compare two values by first coarsening them to the lower of their two
@@ -142,97 +153,104 @@ impl ResTime {
     }
 }
 
-// TODO: Simplify this code by using `Resolution::subdivision()`
+fn set_res_bits(bits: &mut u32, res: Resolution, x: &mut u32) {
+    // Clear the range.  There shouldn't be any actual data there, but the
+    // "data starts here" marker bit might be in here.
+    *bits &= !res.mask();
+    let subdivision = res.subdivision() as u32;
+    *bits |= (*x % subdivision) << res.trailing_zeros() + 1;
+    *x /= subdivision;
+}
+
 impl ResTime {
-    /// `from` is inclusive, `to` is exclusive.  `from` should be finer than
-    /// `to`.
-    fn with_res_bits(self, from: Resolution, to: Resolution, x: u8) -> Option<Self> {
-        // TODO: We could allow setting eg. the month of an `ResTime` which
-        // already has second resolution.  But we'd need to be consider whether
-        // we want to allow eg. starting with February, setting the quarter to
-        // Q4, and ending up with November.  Is that what people want?  Maybe!
-        if self.resolution() != to {
+    pub fn try_with_am_pm(self, x: AmPm) -> Option<Self> {
+        if self.resolution() != Resolution::Day {
             return None;
         }
-        let mut bits = self.0.get();
-        bits &= !Resolution::mask_all(from, to); // clear the range
-        // There shouldn't be any actual data there, but the "data starts
-        // here" marker bit needs to be cleared.
-        let mut x = x as u32;
-        x <<= 1;
-        x |= 0b1; // The new marker bit
-        x <<= from.trailing_zeros();
-        bits |= x as u32;
-        Some(ResTime(NonZero::new(bits).unwrap()))
-    }
-
-    pub fn try_with_meridian(self, x: Meridian) -> Option<Self> {
-        self.with_res_bits(Resolution::Meridian, Resolution::Day, x.into())
+        let mut x = u8::from(x) as u32;
+        let mut ret = self.0.get();
+        set_res_bits(&mut ret, Resolution::AmPm, &mut x);
+        Some(ResTime::from_bits(ret, Resolution::AmPm))
     }
 
     pub fn try_with_time_of_day(self, x: TimeOfDay) -> Option<Self> {
-        self.with_res_bits(Resolution::TimeOfDay, Resolution::Day, x.into())
+        if self.resolution() != Resolution::Day {
+            return None;
+        }
+        let mut x = u8::from(x) as u32;
+        let mut ret = self.0.get();
+        set_res_bits(&mut ret, Resolution::TimeOfDay, &mut x);
+        set_res_bits(&mut ret, Resolution::AmPm, &mut x);
+        Some(ResTime::from_bits(ret, Resolution::TimeOfDay))
     }
 
     pub fn try_with_hour(self, x: u8) -> Option<Self> {
         if x > 23 {
             return None;
         }
-        self.with_res_bits(Resolution::ThreeHour, Resolution::Day, x / 3)?
-            .with_res_bits(Resolution::Hour, Resolution::ThreeHour, x % 3)
+        if self.resolution() != Resolution::Day {
+            return None;
+        }
+        let mut x = x as u32;
+        let mut ret = self.0.get();
+        set_res_bits(&mut ret, Resolution::Hour, &mut x);
+        set_res_bits(&mut ret, Resolution::ThreeHour, &mut x);
+        set_res_bits(&mut ret, Resolution::TimeOfDay, &mut x);
+        set_res_bits(&mut ret, Resolution::AmPm, &mut x);
+        Some(ResTime::from_bits(ret, Resolution::Hour))
     }
 
     pub fn try_with_minute(self, x: u8) -> Option<Self> {
         if x > 59 {
             return None;
         }
-        self.with_res_bits(Resolution::FifteenMinute, Resolution::Hour, x / 15)?
-            .with_res_bits(
-                Resolution::FiveMinute,
-                Resolution::FifteenMinute,
-                (x % 15) / 5,
-            )?
-            .with_res_bits(Resolution::Minute, Resolution::FiveMinute, x % 5)
+        if self.resolution() != Resolution::Hour {
+            return None;
+        }
+        let mut x = x as u32;
+        let mut ret = self.0.get();
+        set_res_bits(&mut ret, Resolution::Minute, &mut x);
+        set_res_bits(&mut ret, Resolution::FiveMinute, &mut x);
+        set_res_bits(&mut ret, Resolution::FifteenMinute, &mut x);
+        set_res_bits(&mut ret, Resolution::ThirtyMinute, &mut x);
+        Some(ResTime::from_bits(ret, Resolution::Minute))
     }
 
     pub fn try_with_second(self, x: u8) -> Option<Self> {
         if x > 59 {
             return None;
         }
-        self.with_res_bits(Resolution::FifteenSecond, Resolution::Minute, x / 15)?
-            .with_res_bits(
-                Resolution::FiveSecond,
-                Resolution::FifteenSecond,
-                (x % 15) / 5,
-            )?
-            .with_res_bits(Resolution::Second, Resolution::FiveSecond, x % 5)
+        if self.resolution() != Resolution::Minute {
+            return None;
+        }
+        let mut x = x as u32;
+        let mut ret = self.0.get();
+        set_res_bits(&mut ret, Resolution::Second, &mut x);
+        set_res_bits(&mut ret, Resolution::FiveSecond, &mut x);
+        set_res_bits(&mut ret, Resolution::FifteenSecond, &mut x);
+        set_res_bits(&mut ret, Resolution::ThirtySecond, &mut x);
+        Some(ResTime::from_bits(ret, Resolution::Second))
     }
 
     pub fn try_with_millis(self, x: u16) -> Option<Self> {
         if x > 999 {
             return None;
         }
-        self.with_res_bits(
-            Resolution::HundredMilli,
-            Resolution::Second,
-            (x / 100) as u8,
-        )?
-        .with_res_bits(
-            Resolution::TenMilli,
-            Resolution::HundredMilli,
-            (x / 10) as u8,
-        )?
-        .with_res_bits(
-            Resolution::Millisecond,
-            Resolution::TenMilli,
-            (x % 10) as u8,
-        )
+        if self.resolution() != Resolution::Second {
+            return None;
+        }
+        let mut x = x as u32;
+        let mut ret = self.0.get();
+        set_res_bits(&mut ret, Resolution::Millisecond, &mut x);
+        set_res_bits(&mut ret, Resolution::TenMilli, &mut x);
+        set_res_bits(&mut ret, Resolution::HundredMilli, &mut x);
+        Some(ResTime::from_bits(ret, Resolution::Millisecond))
     }
 }
 
 impl ResTime {
-    pub fn with_meridian(self, x: Meridian) -> Self {
-        self.try_with_meridian(x).unwrap_or(self)
+    pub fn with_am_pm(self, x: AmPm) -> Self {
+        self.try_with_am_pm(x).unwrap_or(self)
     }
     pub fn with_time_of_day(self, x: TimeOfDay) -> Self {
         self.try_with_time_of_day(x).unwrap_or(self)
@@ -273,114 +291,122 @@ impl ResTime {
     pub fn set_time_of_day(&mut self, x: TimeOfDay) {
         *self = self.with_time_of_day(x);
     }
-    pub fn set_meridian(&mut self, x: Meridian) {
-        *self = self.with_meridian(x);
+    pub fn set_am_pm(&mut self, x: AmPm) {
+        *self = self.with_am_pm(x);
     }
 }
 
 impl ResTime {
-    /// `from` is inclusive, `to` is exclusive.  `from` should be finer than
-    /// `to`.
-    fn get_res_bits(self, from: Resolution, to: Resolution) -> Option<u8> {
-        if self.resolution() < from {
-            return None;
+    fn add_res(self, res: Resolution, x: &mut u32) {
+        let subdivision = res.subdivision() as u32;
+        *x *= subdivision;
+        if res <= self.resolution() {
+            let mut bits = self.0.get();
+            bits >>= res.trailing_zeros() + 1;
+            let n_bits = res.n_bits();
+            bits &= !(u32::MAX << n_bits);
+            *x += bits;
         }
-        let mut bits = self.0.get();
-        bits >>= from.trailing_zeros() + 1;
-        let n_bits = from.available_bits() - to.available_bits();
-        bits &= !(u32::MAX << n_bits);
-        Some(bits as u8)
     }
 
     /// 0-999
-    pub fn millis(self) -> Option<u16> {
-        let mut ret = self.get_res_bits(Resolution::HundredMilli, Resolution::Second)? as u16 * 100;
-        ret += self
-            .get_res_bits(Resolution::TenMilli, Resolution::HundredMilli)
-            .unwrap_or(0) as u16
-            * 10;
-        ret += self
-            .get_res_bits(Resolution::Millisecond, Resolution::TenMilli)
-            .unwrap_or(0) as u16;
-        Some(ret)
+    pub fn millis(self) -> u16 {
+        let mut ret = 0;
+        self.add_res(Resolution::HundredMilli, &mut ret);
+        self.add_res(Resolution::TenMilli, &mut ret);
+        self.add_res(Resolution::Millisecond, &mut ret);
+        ret as u16
     }
     /// 0-59
-    // FIXME: Returns None when resolution=30s
-    pub fn second(self) -> Option<u8> {
-        let mut ret = self.get_res_bits(Resolution::FifteenSecond, Resolution::Minute)? * 15;
-        ret += self
-            .get_res_bits(Resolution::FiveSecond, Resolution::FifteenSecond)
-            .unwrap_or(0)
-            * 5;
-        ret += self
-            .get_res_bits(Resolution::Second, Resolution::FiveSecond)
-            .unwrap_or(0);
-        Some(ret)
+    pub fn second(self) -> u8 {
+        let mut ret = 0;
+        self.add_res(Resolution::ThirtySecond, &mut ret);
+        self.add_res(Resolution::FifteenSecond, &mut ret);
+        self.add_res(Resolution::FiveSecond, &mut ret);
+        self.add_res(Resolution::Second, &mut ret);
+        ret as u8
     }
     /// 0-59
-    // FIXME: Returns None when resolution=30m
-    pub fn minute(self) -> Option<u8> {
-        let mut ret = self.get_res_bits(Resolution::FifteenMinute, Resolution::Hour)? * 15;
-        ret += self
-            .get_res_bits(Resolution::FiveMinute, Resolution::FifteenMinute)
-            .unwrap_or(0)
-            * 5;
-        ret += self
-            .get_res_bits(Resolution::Minute, Resolution::FiveMinute)
-            .unwrap_or(0);
-        Some(ret)
+    pub fn minute(self) -> u8 {
+        let mut ret = 0;
+        self.add_res(Resolution::ThirtyMinute, &mut ret);
+        self.add_res(Resolution::FifteenMinute, &mut ret);
+        self.add_res(Resolution::FiveMinute, &mut ret);
+        self.add_res(Resolution::Minute, &mut ret);
+        ret as u8
     }
     /// 0-23
-    // FIXME: Returns None when resolution=6h/12h
-    pub fn hour(self) -> Option<u8> {
-        let mut ret = self.get_res_bits(Resolution::ThreeHour, Resolution::Day)? * 3;
-        ret += self
-            .get_res_bits(Resolution::Hour, Resolution::ThreeHour)
-            .unwrap_or(0);
-        Some(ret)
+    pub fn hour(self) -> u8 {
+        let mut ret = 0;
+        self.add_res(Resolution::AmPm, &mut ret);
+        self.add_res(Resolution::TimeOfDay, &mut ret);
+        self.add_res(Resolution::ThreeHour, &mut ret);
+        self.add_res(Resolution::Hour, &mut ret);
+        ret as u8
     }
     pub fn time_of_day(self) -> Option<TimeOfDay> {
-        let x = self.get_res_bits(Resolution::TimeOfDay, Resolution::Day)?;
-        Some(x.try_into().unwrap())
+        if self.resolution() < Resolution::AmPm {
+            return None;
+        }
+        let mut ret = 0;
+        self.add_res(Resolution::AmPm, &mut ret);
+        self.add_res(Resolution::TimeOfDay, &mut ret);
+        Some((ret as u8).try_into().unwrap())
     }
-    pub fn meridian(self) -> Option<Meridian> {
-        let x = self.get_res_bits(Resolution::Meridian, Resolution::Day)?;
-        Some(x.try_into().unwrap())
+    pub fn am_pm(self) -> Option<AmPm> {
+        if self.resolution() < Resolution::AmPm {
+            return None;
+        }
+        let mut ret = 0;
+        self.add_res(Resolution::AmPm, &mut ret);
+        Some((ret as u8).try_into().unwrap())
+    }
+}
+
+impl fmt::Debug for ResTime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ResTime(")?;
+        let mut map = f.debug_map();
+        for res in Resolution::range(self.resolution(), Resolution::Day).rev() {
+            let mut bits = 0;
+            self.add_res(res, &mut bits);
+            map.entry(&res, &bits);
+        }
+        map.finish()?;
+        f.write_str(")")?;
+
+        // f.write_str("ResTime::new()")?;
+        // for res in Resolution::range(self.resolution(), Resolution::Day).rev() {
+        //     let mut bits = self.0.get();
+        //     bits >>= res.trailing_zeros() + 1;
+        //     let n_bits = res.n_bits();
+        //     bits &= !(u32::MAX << n_bits);
+        //     write!(f, ".with({res:?}, {})", bits)?;
+        // }
+        Ok(())
     }
 }
 
 impl fmt::Display for ResTime {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Some(hour) = self.hour() else {
-            if let Some(x) = self.time_of_day() {
-                write!(f, "{x}")?;
-            } else if let Some(x) = self.meridian() {
-                write!(f, "{x}")?;
-            } else {
-                write!(f, "whole day")?;
-            }
-            return Ok(());
-        };
-        write!(f, "{hour:02}")?;
-        if let Some(minute) = self.minute() {
-            write!(f, ":{minute:02}")?;
-        } else {
-            write!(f, ":00")?;
-            return Ok(());
-        }
-        if let Some(second) = self.second() {
-            write!(f, ":{second:02}")?;
-        }
-        if let Some(millis) = self.millis() {
-            eprintln!("{millis}");
-            match self.resolution() {
-                Resolution::HundredMilli => write!(f, ".{:01}", millis / 100)?,
-                Resolution::TenMilli => write!(f, ".{:02}", millis / 10)?,
-                Resolution::Millisecond => write!(f, ".{millis:03}")?,
-                _ => panic!(),
+        match self.resolution() {
+            Resolution::Day => f.write_str("whole day"),
+            Resolution::AmPm => write!(f, "{}", self.am_pm().unwrap()),
+            Resolution::TimeOfDay => write!(f, "{}", self.time_of_day().unwrap()),
+            _ => {
+                write!(f, "{:02}:{:02}", self.hour(), self.minute())?;
+                if self.resolution() > Resolution::Minute {
+                    write!(f, ":{:02}", self.second())?;
+                }
+                match self.resolution() {
+                    Resolution::HundredMilli => write!(f, ".{:01}", self.millis() / 100)?,
+                    Resolution::TenMilli => write!(f, ".{:02}", self.millis() / 10)?,
+                    Resolution::Millisecond => write!(f, ".{:03}", self.millis())?,
+                    _ => (),
+                }
+                Ok(())
             }
         }
-        Ok(())
     }
 }
 
@@ -395,7 +421,7 @@ impl fmt::Display for ResTime {
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Linearize)]
 pub enum Resolution {
     Day,
-    Meridian,
+    AmPm,
     TimeOfDay,
     ThreeHour,
     Hour,
@@ -428,7 +454,7 @@ impl Resolution {
     fn available_bits(self) -> u8 {
         match self {
             Resolution::Day => 0,
-            Resolution::Meridian => 1,
+            Resolution::AmPm => 1,
             Resolution::TimeOfDay => 2,
             Resolution::ThreeHour => 3,
             Resolution::Hour => 5,
@@ -454,10 +480,6 @@ impl Resolution {
         !(u32::MAX << self.n_bits()) << self.trailing_zeros() + 1
     }
 
-    fn mask_all(from: Resolution, to: Resolution) -> u32 {
-        Resolution::range(from, to).fold(0, |mask, res| mask | res.mask())
-    }
-
     fn trailing_zeros(self) -> u8 {
         31 - self.available_bits()
     }
@@ -478,7 +500,7 @@ impl Resolution {
             26 => Resolution::Hour,
             28 => Resolution::ThreeHour,
             29 => Resolution::TimeOfDay,
-            30 => Resolution::Meridian,
+            30 => Resolution::AmPm,
             31 => Resolution::Day,
             _ => panic!(),
         }
@@ -487,7 +509,7 @@ impl Resolution {
     fn subdivision(self) -> u8 {
         match self {
             Resolution::Day => 0,
-            Resolution::Meridian => 2,
+            Resolution::AmPm => 2,
             Resolution::TimeOfDay => 2,
             Resolution::ThreeHour => 2,
             Resolution::Hour => 3,
@@ -507,7 +529,7 @@ impl Resolution {
 
     /// `from` is inclusive, `to` is exclusive.  `from` should be finer than
     /// `to`.
-    fn range(from: Resolution, to: Resolution) -> impl Iterator<Item = Resolution> {
+    fn range(from: Resolution, to: Resolution) -> impl DoubleEndedIterator<Item = Resolution> {
         let from = from.linearize();
         let to = to.linearize();
         Resolution::variants()
@@ -624,10 +646,6 @@ mod tests {
         assert_eq!(Resolution::FiveSecond.mask(), 0b110000_000000000000);
         assert_eq!(Resolution::FifteenSecond.mask(), 0b1000000_000000000000);
         assert_eq!(Resolution::ThirtySecond.mask(), 0b10000000_000000000000);
-        assert_eq!(
-            Resolution::mask_all(Resolution::Second, Resolution::Minute),
-            0b11111110_000000000000
-        );
     }
 
     #[test]
@@ -646,15 +664,24 @@ mod tests {
     #[test]
     fn test_set_get() {
         let mut x = ResTime::default();
+        for hour in 0..24 {
+            let x = x.with_hour(hour);
+            assert_eq!(x.hour(), hour, "{:#b}", x.0);
+        }
         x.set_hour(11);
-        for minute in 0..59 {
+        for minute in 0..60 {
             let x = x.with_minute(minute);
-            assert_eq!(x.minute(), Some(minute), "{:#b}", x.0);
+            assert_eq!(x.minute(), minute, "{:#b}", x.0);
         }
         x.set_minute(43);
-        for second in 0..59 {
+        for second in 0..60 {
             let x = x.with_second(second);
-            assert_eq!(x.second(), Some(second), "{:#b}", x.0);
+            assert_eq!(x.second(), second, "{:#b}", x.0);
+        }
+        x.set_second(59);
+        for millis in 0..1000 {
+            let x = x.with_millis(millis);
+            assert_eq!(x.millis(), millis, "{:#b}", x.0);
         }
     }
 
@@ -692,18 +719,65 @@ mod tests {
     }
 
     #[test]
-    fn example() {
+    fn test_am_pm() {
+        let t = ResTime::new()
+            .with_hour(0)
+            .with_minute(0)
+            .with_second(0)
+            .with_millis(0);
+        assert_eq!(t.am_pm(), Some(AmPm::AM));
+        let t = ResTime::new()
+            .with_hour(11)
+            .with_minute(59)
+            .with_second(59)
+            .with_millis(999);
+        assert_eq!(t.am_pm(), Some(AmPm::AM));
+        let t = ResTime::new()
+            .with_hour(12)
+            .with_minute(0)
+            .with_second(0)
+            .with_millis(0);
+        assert_eq!(t.am_pm(), Some(AmPm::PM));
+        let t = ResTime::new()
+            .with_hour(23)
+            .with_minute(59)
+            .with_second(59)
+            .with_millis(999);
+        assert_eq!(t.am_pm(), Some(AmPm::PM));
+    }
+
+    #[test]
+    fn test_time_of_day() {
+        let t = ResTime::new().with_hour(0).with_minute(0);
+        assert_eq!(t.time_of_day(), Some(TimeOfDay::Night));
+        let t = ResTime::new().with_hour(5).with_minute(59);
+        assert_eq!(t.time_of_day(), Some(TimeOfDay::Night));
+        let t = ResTime::new().with_hour(6).with_minute(0);
+        assert_eq!(t.time_of_day(), Some(TimeOfDay::Morning));
+        let t = ResTime::new().with_hour(11).with_minute(59);
+        assert_eq!(t.time_of_day(), Some(TimeOfDay::Morning));
+        let t = ResTime::new().with_hour(12).with_minute(0);
+        assert_eq!(t.time_of_day(), Some(TimeOfDay::Afternoon));
+        let t = ResTime::new().with_hour(17).with_minute(59);
+        assert_eq!(t.time_of_day(), Some(TimeOfDay::Afternoon));
+        let t = ResTime::new().with_hour(18).with_minute(0);
+        assert_eq!(t.time_of_day(), Some(TimeOfDay::Evening));
+        let t = ResTime::new().with_hour(23).with_minute(59);
+        assert_eq!(t.time_of_day(), Some(TimeOfDay::Evening));
+    }
+
+    #[test]
+    fn test_res_fmt() {
         let t = ResTime::new()
             .with_hour(15)
             .with_minute(7)
             .with_second(24)
             .with_millis(75);
-        eprintln!("{:#b}", t.0);
-        eprintln!("{:?}", t.resolution());
+        eprintln!("{t}, res={:?}, {:#b}", t.resolution(), t.0);
         assert_eq!(t.to_string(), "15:07:24.075");
         for res in Resolution::variants() {
-            eprintln!("{res:?}");
             let actual = t.with_res(res).unwrap().to_string();
+            eprintln!("{res:?} => {:?} => {}", t.with_res(res), actual);
             let expected = match res {
                 Resolution::Millisecond => "15:07:24.075",
                 Resolution::TenMilli => "15:07:24.07",
@@ -711,8 +785,7 @@ mod tests {
                 Resolution::Second => "15:07:24",
                 Resolution::FiveSecond => "15:07:20",
                 Resolution::FifteenSecond => "15:07:15",
-                // FIXME: Should be: "15:07:00",
-                Resolution::ThirtySecond => "15:07",
+                Resolution::ThirtySecond => "15:07:00",
                 Resolution::Minute => "15:07",
                 Resolution::FiveMinute => "15:05",
                 Resolution::FifteenMinute => "15:00",
@@ -720,7 +793,7 @@ mod tests {
                 Resolution::Hour => "15:00",
                 Resolution::ThreeHour => "15:00",
                 Resolution::TimeOfDay => "afternoon",
-                Resolution::Meridian => "PM",
+                Resolution::AmPm => "PM",
                 Resolution::Day => "whole day",
             };
             assert_eq!(actual, expected);
