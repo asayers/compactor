@@ -8,6 +8,33 @@ use std::{fmt, num::NonZero};
 
 /// A time with a resolution
 ///
+/// To illustrate, consider these two times:
+///
+/// ```
+/// let t1 = ResTime::new().with_hour(15).with_minute(27).with_second(17);
+/// let t2 = t1.with_millis(0);
+/// assert_ne!(t1, t2);
+/// ```
+///
+/// In most date/time libraries, if you don't specify the number of sub-second
+/// millis, it just sets them to zero. As a result, these values like `t1`
+/// and `t2` here would be considered equal.  Not so with `ResTime`!  Adding
+/// `.with_millis(0)` resulted in a _different value_.  Previously the number of
+/// sub-second millis was unknown.  Now it is known to be zero.
+///
+/// ## Equality and ordering
+///
+/// As illustrated above, the `Eq` impl considers resolution significant.  Two
+/// `ResTime`s at different resolutions will never compare equal, even if one
+/// contains the other.
+///
+/// Likewise, ordering only exists between `ResTime`s of the same resolution.
+/// Within a resolution, `ResTime`s are totally ordered in the expected way.
+/// If you want to compare values of different resolutions, take a look at
+/// [ResTime::coarse_cmp].
+///
+/// ## A day-spanning tree of time intervals
+///
 /// Including a resolution means each `ResTime` value actually identifies a
 /// certain time _interval_.  You can lower the resolution, which increases the
 /// width of the interval.
@@ -25,6 +52,8 @@ use std::{fmt, num::NonZero};
 /// lower bits unavailable.  In other words, the resolution is simply the number
 /// of available bits.
 ///
+/// ## How it's encoded
+///
 /// We indicate the resolution with a unary encoding in the lower bits.
 /// Starting from the LSB, there are some number of zeroes, followed by a one.
 /// The number of zeroes gives you the resolution.  After the one, all bits
@@ -33,16 +62,11 @@ use std::{fmt, num::NonZero};
 /// This is a nice encoding, because (A) storing the resolution only costs a
 /// single bit, and (B) the positions of the time-data bits always have the same
 /// meaning, regardless of resolution (eg. bit 18, if it exists, always tells
-/// you whether it's morning or afternoon).  Since there's always a one-bit
-/// somewhere, the "all-zeroes" bit pattern is invalid and can be used to
-/// represent th e `None` case of `Option<ResTime>`.
+/// you whether it's morning or afternoon).
 ///
-/// The `Eq` impl considers resolution significant.  Two `ResTime`s at
-/// different resolutions will never compare equal, even if one contains
-/// the other. Likewise, ordering only exists between `ResTime`s of the same
-/// resolution. Within a resolution, `ResTime`s are totally ordered in the
-/// expected way. If you want to compare values of different resolutions, see
-/// [ResTime::coarse_cmp].
+/// A bonus: since there's always a one-bit somewhere, the "all-zeroes"
+/// bit pattern is invalid, and can be used to represent the `None` case of
+/// `Option<ResTime>`.
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct ResTime(NonZero<u32>);
 
