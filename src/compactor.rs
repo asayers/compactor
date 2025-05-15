@@ -4,6 +4,7 @@ use jiff::civil::Date;
 use std::cmp::Ordering;
 
 #[derive(Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 // TODO: RLE the dates?
 pub struct CompactedData<T>(Vec<(Date, ResTime, T)>);
 
@@ -90,6 +91,7 @@ impl<T: Aggregate> CompactedData<T> {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Compactor<T> {
     policy: Policy,
     data: CompactedData<T>,

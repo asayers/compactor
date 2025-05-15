@@ -64,6 +64,7 @@ use std::{fmt, num::NonZero};
 /// bit pattern is invalid, and can be used to represent the `None` case of
 /// `Option<ResTime>`.
 #[derive(Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ResTime(NonZero<u32>);
 
 impl PartialOrd for ResTime {

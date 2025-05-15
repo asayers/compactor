@@ -1,6 +1,5 @@
-use std::ops::Div;
-
 use linearize::{Linearize, LinearizeExt};
+use std::ops::Div;
 
 /// There are 19 resolutions available:
 ///
@@ -13,6 +12,7 @@ use linearize::{Linearize, LinearizeExt};
 /// The `Ord` impl follows natural-language: `x < y` means that x is
 /// lower-resolution than y.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Linearize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Resolution {
     Day,
     AmPm,

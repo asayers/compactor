@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 
 /// Describes how data should be compacted
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Policy {
     // Goes from (distant, low-res) to (recent, high-res)
     pub(crate) compaction_rules: Box<[(Days, Resolution)]>,
