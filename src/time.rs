@@ -6,6 +6,7 @@ use std::{fmt, num::NonZero};
 /// To illustrate, consider these two times:
 ///
 /// ```
+/// # use compactor::ResTime;
 /// let t1 = ResTime::new().with_hour(15).with_minute(27).with_second(17);
 /// let t2 = t1.with_millis(0);
 /// assert_ne!(t1, t2);
@@ -167,6 +168,14 @@ impl ResTime {
         y |= 1 << zeroes;
         x.cmp(&y)
     }
+
+    pub fn start(self) -> jiff::civil::Time {
+        todo!()
+    }
+
+    pub fn end(self) -> jiff::civil::Time {
+        todo!()
+    }
 }
 
 impl Default for ResTime {
@@ -178,9 +187,23 @@ impl Default for ResTime {
 impl ResTime {
     pub const WHOLE_DAY: Self =
         ResTime(NonZero::new(0b10000000_00000000_00000000_00000000).unwrap());
+    /// ```
+    /// # use compactor::{AmPm, ResTime};
+    /// assert_eq!(ResTime::AM, ResTime::new().with_am_pm(AmPm::AM));
+    /// ```
+    pub const AM: Self = ResTime(NonZero::new(0b01000000_00000000_00000000_00000000).unwrap());
+    /// ```
+    /// # use compactor::{AmPm, ResTime};
+    /// assert_eq!(ResTime::PM, ResTime::new().with_am_pm(AmPm::PM));
+    /// ```
+    pub const PM: Self = ResTime(NonZero::new(0b11000000_00000000_00000000_00000000).unwrap());
 
     pub fn new() -> Self {
         Self::WHOLE_DAY
+    }
+
+    pub fn from_hour(h: u8) -> Self {
+        ResTime::new().with_hour(h)
     }
 }
 
