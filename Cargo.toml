@@ -2,6 +2,9 @@
 name = "compactor"
 version = "0.1.0"
 edition = "2024"
+authors = ["Alex Sayers <alex@asayers.com>"]
+license = "Unlicense"
+repository = "https://github.com/asayers/compactor"
 
 [dependencies]
 jiff = "0.2.12"
