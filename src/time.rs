@@ -87,6 +87,18 @@ impl From<jiff::civil::Time> for ResTime {
     }
 }
 
+#[cfg(feature = "chrono")]
+impl From<chrono::NaiveTime> for ResTime {
+    fn from(t: chrono::NaiveTime) -> Self {
+        use chrono::Timelike;
+        ResTime::new()
+            .with_hour(t.hour() as u8)
+            .with_minute(t.minute() as u8)
+            .with_second(t.second() as u8)
+            .with_millis((t.nanosecond() / 1_000_000) as u16)
+    }
+}
+
 // Bits:
 //
 // 00 => millis

@@ -1,7 +1,39 @@
 use crate::{Aggregate, Policy, ResTime, Resolution};
 use core::fmt;
-use jiff::civil::Date;
 use std::cmp::Ordering;
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Date {
+    pub year: i16,
+    pub month: i8,
+    pub day: i8,
+}
+impl fmt::Display for Date {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:04}-{:02}-{:02}", self.year, self.month, self.day)
+    }
+}
+impl From<jiff::civil::Date> for Date {
+    fn from(date: jiff::civil::Date) -> Self {
+        Date {
+            year: date.year(),
+            month: date.month(),
+            day: date.day(),
+        }
+    }
+}
+#[cfg(feature = "chrono")]
+impl From<chrono::NaiveDate> for Date {
+    fn from(date: chrono::NaiveDate) -> Self {
+        use chrono::Datelike;
+        Date {
+            year: date.year() as i16,
+            month: date.month() as i8,
+            day: date.day() as i8,
+        }
+    }
+}
 
 #[derive(Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -79,13 +111,15 @@ impl<T: Aggregate> CompactedData<T> {
     // TODO: The compactions could be combined... but it doesn't matter: this
     // isn't the fast path
     fn apply_policy(&mut self, policy: &Policy, date: Date) {
+        let date = jiff::civil::date(date.year, date.month, date.day);
+
         // Remove data no longer covered by any policy
         let up_to = date - jiff::Span::new().days(policy.max_retention);
-        self.discard(up_to);
+        self.discard(up_to.into());
 
         for (days, res) in &policy.compaction_rules {
             let up_to = date - jiff::Span::new().days(*days);
-            self.compact(up_to, *res);
+            self.compact(up_to.into(), *res);
         }
     }
 }
@@ -111,6 +145,15 @@ impl<T> Compactor<T> {
         &self.policy
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.data.0.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.0.len()
+    }
+
+    /// Goes from old -> new
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = (Date, ResTime, &T)> {
         self.data.0.iter().map(|(d, t, x)| (*d, *t, x))
     }
@@ -122,7 +165,14 @@ pub enum PushError {
 }
 
 impl<T: Aggregate> Compactor<T> {
-    pub fn push(&mut self, date: Date, mut time: ResTime, x: T) -> Result<(), PushError> {
+    pub fn push(
+        &mut self,
+        date: impl Into<Date>,
+        time: impl Into<ResTime>,
+        x: T,
+    ) -> Result<(), PushError> {
+        let date = date.into();
+        let mut time = time.into();
         time.reduce_to(self.policy.max_res);
 
         let Some(last) = self.data.0.last_mut() else {
@@ -245,21 +295,21 @@ mod tests {
         agg.push(date(2023, 1, 1), time(13, 3, 0), vec![3])?;
         assert_eq!(
             agg.data.0,
-            vec![(date(2023, 1, 1), ResTime::WHOLE_DAY, vec![1, 2, 3])]
+            vec![(date(2023, 1, 1).into(), ResTime::WHOLE_DAY, vec![1, 2, 3])]
         );
         agg.push(date(2023, 1, 2), time(13, 1, 0), vec![1])?;
         agg.push(date(2023, 1, 2), time(13, 2, 0), vec![2])?;
         agg.push(date(2023, 1, 2), time(13, 3, 0), vec![3])?;
         assert_eq!(
             agg.data.0,
-            vec![(date(2023, 1, 2), ResTime::WHOLE_DAY, vec![1, 2, 3])]
+            vec![(date(2023, 1, 2).into(), ResTime::WHOLE_DAY, vec![1, 2, 3])]
         );
         agg.push(date(2023, 1, 3), time(13, 1, 0), vec![1])?;
         agg.push(date(2023, 1, 3), time(13, 2, 0), vec![2])?;
         agg.push(date(2023, 1, 3), time(13, 3, 0), vec![3])?;
         assert_eq!(
             agg.data.0,
-            vec![(date(2023, 1, 3), ResTime::WHOLE_DAY, vec![1, 2, 3])]
+            vec![(date(2023, 1, 3).into(), ResTime::WHOLE_DAY, vec![1, 2, 3])]
         );
         Ok(())
     }
@@ -275,7 +325,7 @@ mod tests {
         agg.push(date(2023, 1, 1), time(13, 3, 0), vec![3])?;
         assert_eq!(
             agg.data.0,
-            vec![(date(2023, 1, 1), ResTime::WHOLE_DAY, vec![1, 2, 3])]
+            vec![(date(2023, 1, 1).into(), ResTime::WHOLE_DAY, vec![1, 2, 3])]
         );
         agg.push(date(2023, 1, 2), time(13, 1, 0), vec![1])?;
         agg.push(date(2023, 1, 2), time(13, 2, 0), vec![2])?;

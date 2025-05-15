@@ -7,6 +7,7 @@ license = "Unlicense"
 repository = "https://github.com/asayers/compactor"
 
 [dependencies]
+chrono = { version = "0.4", optional = true }
 jiff = "0.2.12"
 linearize = { version = "0.1.4", features = ["derive"] }
 serde = { version = "1", features = ["derive"], optional = true }
@@ -14,3 +15,4 @@ serde = { version = "1", features = ["derive"], optional = true }
 [features]
 default = []
 serde = ["dep:serde", "jiff/serde"]
+chrono = ["dep:chrono"]
