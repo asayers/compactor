@@ -1,5 +1,5 @@
 use linearize::{Linearize, LinearizeExt};
-use std::ops::Div;
+use std::{ops::Div, time::Duration};
 
 /// There are 19 resolutions available:
 ///
@@ -33,6 +33,38 @@ pub enum Resolution {
     TenMilli,
     FiveMilli,
     Millisecond,
+}
+
+impl Resolution {
+    pub const fn width(self) -> std::time::Duration {
+        match self {
+            Resolution::Day => Duration::from_secs(24 * 60 * 60),
+            Resolution::AmPm => Duration::from_secs(12 * 60 * 60),
+            Resolution::TimeOfDay => Duration::from_secs(6 * 60 * 60),
+            Resolution::ThreeHour => Duration::from_secs(3 * 60 * 60),
+            Resolution::Hour => Duration::from_secs(60 * 60),
+            Resolution::ThirtyMinute => Duration::from_secs(30 * 60),
+            Resolution::FifteenMinute => Duration::from_secs(15 * 60),
+            Resolution::FiveMinute => Duration::from_secs(5 * 60),
+            Resolution::Minute => Duration::from_secs(60),
+            Resolution::ThirtySecond => Duration::from_secs(30),
+            Resolution::FifteenSecond => Duration::from_secs(15),
+            Resolution::FiveSecond => Duration::from_secs(5),
+            Resolution::Second => Duration::from_secs(1),
+            Resolution::FiveHundredMilli => Duration::from_millis(500),
+            Resolution::HundredMilli => Duration::from_millis(100),
+            Resolution::FiftyMilli => Duration::from_millis(50),
+            Resolution::TenMilli => Duration::from_millis(10),
+            Resolution::FiveMilli => Duration::from_millis(5),
+            Resolution::Millisecond => Duration::from_millis(1),
+        }
+    }
+}
+
+impl From<Resolution> for std::time::Duration {
+    fn from(value: Resolution) -> Self {
+        value.width()
+    }
 }
 
 impl Resolution {
@@ -235,6 +267,20 @@ mod tests {
         for res in Resolution::variants() {
             let n_bits = res.coarser().map_or(31, |x| x.trailing_zeros()) - res.trailing_zeros();
             assert_eq!(res.n_bits(), n_bits, "{res:?}",)
+        }
+    }
+
+    #[test]
+    fn test_width() {
+        for (res1, res2) in Resolution::variants()
+            .rev()
+            .zip(Resolution::variants().rev().skip(1))
+        {
+            assert_eq!(
+                res1.width() * res1.subdivision() as u32,
+                res2.width(),
+                "{res1:?}"
+            )
         }
     }
 }
