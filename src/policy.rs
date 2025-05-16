@@ -1,5 +1,7 @@
-use crate::{Compactor, Resolution};
-use std::marker::PhantomData;
+use crate::Resolution;
+use core::fmt;
+
+type Days = u16;
 
 /// Describes how data should be compacted
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -11,15 +13,33 @@ pub struct Policy {
     pub(crate) max_retention: Days,
 }
 
-type Days = u16;
-
-pub struct CompactorBuilder<T>(Vec<(u16 /* days */, Resolution)>, PhantomData<T>);
-
-impl<T> Compactor<T> {
-    pub fn new() -> CompactorBuilder<T> {
-        CompactorBuilder(vec![], PhantomData)
+impl fmt::Display for Policy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if f.alternate() {
+            writeln!(f, "Initial: {}-resolution", self.max_res)?;
+            for (d, res) in self.compaction_rules.iter().rev() {
+                writeln!(f, "After {d} days: reduce to {res}-resolution")?;
+            }
+            write!(f, "After {} days: delete", self.max_retention)?;
+        } else {
+            write!(f, "{}", self.max_res)?;
+            for (d, res) in self.compaction_rules.iter().rev() {
+                write!(f, " →  ({d}d) {res}")?;
+            }
+            write!(f, " →  ({}d) delete", self.max_retention)?;
+        }
+        Ok(())
     }
 }
+
+impl Policy {
+    pub fn new() -> PolicyBuilder {
+        PolicyBuilder::default()
+    }
+}
+
+#[derive(Default)]
+pub struct PolicyBuilder(Vec<(Days, Resolution)>);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PolicyError {
@@ -28,7 +48,7 @@ pub enum PolicyError {
     SomePoliciesDominateOthers,
 }
 
-impl<T> CompactorBuilder<T> {
+impl PolicyBuilder {
     /// Allow this compactor to keep data at resolution `res` for up to
     /// `num_days` days
     pub fn keep_for_days(mut self, num_days: u16, res: Resolution) -> Self {
@@ -36,7 +56,7 @@ impl<T> CompactorBuilder<T> {
         self
     }
 
-    pub fn into_policy(self) -> Result<Policy, PolicyError> {
+    pub fn build(self) -> Result<Policy, PolicyError> {
         let mut raw_policy = self.0;
         if raw_policy.is_empty() {
             return Err(PolicyError::ZeroRetention);
@@ -62,8 +82,41 @@ impl<T> CompactorBuilder<T> {
             max_retention,
         })
     }
+}
 
-    pub fn build(self) -> Result<Compactor<T>, PolicyError> {
-        self.into_policy().map(Compactor::from)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fmt() {
+        let policy = Policy::new()
+            .keep_for_days(1, Resolution::FiveSecond)
+            .keep_for_days(2, Resolution::FifteenSecond)
+            .keep_for_days(5, Resolution::Minute)
+            .keep_for_days(10, Resolution::FiveMinute)
+            .keep_for_days(30, Resolution::FifteenMinute)
+            .keep_for_days(90, Resolution::Hour)
+            .keep_for_days(180, Resolution::AmPm)
+            .keep_for_days(365, Resolution::Day)
+            .build()
+            .unwrap();
+        assert_eq!(
+            format!("{:#}", policy),
+            "Initial: 5s-resolution\n\
+            After 1 days: reduce to 15s-resolution\n\
+            After 2 days: reduce to minute-resolution\n\
+            After 5 days: reduce to 5m-resolution\n\
+            After 10 days: reduce to 15m-resolution\n\
+            After 30 days: reduce to hour-resolution\n\
+            After 90 days: reduce to AM/PM-resolution\n\
+            After 180 days: reduce to day-resolution\n\
+            After 365 days: delete"
+        );
+        assert_eq!(
+            policy.to_string(),
+            "5s →  (1d) 15s →  (2d) minute →  (5d) 5m →  (10d) 15m \
+            →  (30d) hour →  (90d) AM/PM →  (180d) day →  (365d) delete"
+        );
     }
 }

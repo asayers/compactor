@@ -1,6 +1,9 @@
-use crate::{Aggregate, Date, Policy, ResTime, Resolution};
+use crate::{
+    Aggregate, Date, ResTime, Resolution,
+    policy::{Policy, PolicyBuilder, PolicyError},
+};
 use core::fmt;
-use std::cmp::Ordering;
+use std::{cmp::Ordering, marker::PhantomData};
 
 #[derive(Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -117,7 +120,30 @@ impl<T> From<Policy> for Compactor<T> {
     }
 }
 
+pub struct CompactorBuilder<T>(PolicyBuilder, PhantomData<T>);
+
+impl<T> Default for CompactorBuilder<T> {
+    fn default() -> Self {
+        CompactorBuilder(PolicyBuilder::default(), PhantomData)
+    }
+}
+
+impl<T> CompactorBuilder<T> {
+    pub fn keep_for_days(mut self, num_days: u16, res: Resolution) -> Self {
+        self.0 = self.0.keep_for_days(num_days, res);
+        self
+    }
+
+    pub fn build(self) -> Result<Compactor<T>, PolicyError> {
+        self.0.build().map(Compactor::from)
+    }
+}
+
 impl<T> Compactor<T> {
+    pub fn new() -> CompactorBuilder<T> {
+        CompactorBuilder::default()
+    }
+
     pub fn policy(&self) -> &Policy {
         &self.policy
     }

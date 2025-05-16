@@ -1,3 +1,4 @@
+use core::fmt;
 use linearize::{Linearize, LinearizeExt};
 use std::{ops::Div, time::Duration};
 
@@ -11,6 +12,20 @@ use std::{ops::Div, time::Duration};
 ///
 /// The `Ord` impl follows natural-language: `x < y` means that x is
 /// lower-resolution than y.
+///
+/// ## How were these chosen?
+///
+/// The rule is that, for any pair of resolutions, one must be an exact integer
+/// multiple of the other.  So this means, for example that "10m" and "15m" are
+/// incompatible resolutions.  You can choose to allow one, or the other, but
+/// not both.  (I picked 15m.)
+///
+/// FYI you can see this integer multiple by dividing one resolution by another:
+///
+/// ```
+/// # use compactor::Resolution;
+/// assert_eq!(Resolution::ThirtySecond / Resolution::FiftyMilli, 600);
+/// ```
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Linearize)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Resolution {
@@ -33,6 +48,32 @@ pub enum Resolution {
     TenMilli,
     FiveMilli,
     Millisecond,
+}
+
+impl fmt::Display for Resolution {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Resolution::Day => f.write_str("day"),
+            Resolution::AmPm => f.write_str("AM/PM"),
+            Resolution::TimeOfDay => f.write_str("6h"),
+            Resolution::ThreeHour => f.write_str("3h"),
+            Resolution::Hour => f.write_str("hour"),
+            Resolution::ThirtyMinute => f.write_str("30m"),
+            Resolution::FifteenMinute => f.write_str("15m"),
+            Resolution::FiveMinute => f.write_str("5m"),
+            Resolution::Minute => f.write_str("minute"),
+            Resolution::ThirtySecond => f.write_str("30s"),
+            Resolution::FifteenSecond => f.write_str("15s"),
+            Resolution::FiveSecond => f.write_str("5s"),
+            Resolution::Second => f.write_str("second"),
+            Resolution::FiveHundredMilli => f.write_str("500ms"),
+            Resolution::HundredMilli => f.write_str("100ms"),
+            Resolution::FiftyMilli => f.write_str("50ms"),
+            Resolution::TenMilli => f.write_str("10ms"),
+            Resolution::FiveMilli => f.write_str("5ms"),
+            Resolution::Millisecond => f.write_str("millisecond"),
+        }
+    }
 }
 
 impl Resolution {
