@@ -16,3 +16,4 @@ serde = { version = "1", features = ["derive"], optional = true }
 default = []
 serde = ["dep:serde", "jiff/serde"]
 chrono = ["dep:chrono"]
+jiff = [] # We actually need the jiff dep either way, for date arithmetic

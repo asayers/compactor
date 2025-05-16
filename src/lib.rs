@@ -1,10 +1,12 @@
 mod compactor;
+mod date;
 mod policy;
 mod resolution;
 mod time;
 mod types;
 
 pub use crate::compactor::Compactor;
+pub use crate::date::Date;
 pub use crate::policy::{CompactorBuilder, Policy};
 pub use crate::resolution::Resolution;
 pub use crate::time::ResTime;

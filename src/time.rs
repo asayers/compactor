@@ -77,6 +77,7 @@ impl PartialOrd for ResTime {
     }
 }
 
+#[cfg(feature = "jiff")]
 impl From<jiff::civil::Time> for ResTime {
     fn from(t: jiff::civil::Time) -> Self {
         ResTime::new()
@@ -84,6 +85,18 @@ impl From<jiff::civil::Time> for ResTime {
             .with_minute(t.minute() as u8)
             .with_second(t.second() as u8)
             .with_millis(t.millisecond() as u16)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<ResTime> for jiff::civil::Time {
+    fn from(t: ResTime) -> Self {
+        jiff::civil::time(
+            t.hour() as i8,
+            t.minute() as i8,
+            t.second() as i8,
+            t.millis() as i32,
+        )
     }
 }
 
@@ -96,6 +109,19 @@ impl From<chrono::NaiveTime> for ResTime {
             .with_minute(t.minute() as u8)
             .with_second(t.second() as u8)
             .with_millis((t.nanosecond() / 1_000_000) as u16)
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl From<ResTime> for chrono::NaiveTime {
+    fn from(t: ResTime) -> Self {
+        chrono::NaiveTime::from_hms_milli_opt(
+            t.hour() as u32,
+            t.minute() as u32,
+            t.second() as u32,
+            t.millis() as u32,
+        )
+        .unwrap()
     }
 }
 
@@ -182,13 +208,13 @@ impl ResTime {
         x.cmp(&y)
     }
 
-    pub fn start(self) -> jiff::civil::Time {
-        todo!()
-    }
+    // pub fn start(self) -> jiff::civil::Time {
+    //     todo!()
+    // }
 
-    pub fn end(self) -> jiff::civil::Time {
-        todo!()
-    }
+    // pub fn end(self) -> jiff::civil::Time {
+    //     todo!()
+    // }
 }
 
 impl Default for ResTime {

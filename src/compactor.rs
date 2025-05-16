@@ -1,39 +1,6 @@
-use crate::{Aggregate, Policy, ResTime, Resolution};
+use crate::{Aggregate, Date, Policy, ResTime, Resolution};
 use core::fmt;
 use std::cmp::Ordering;
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Date {
-    pub year: i16,
-    pub month: i8,
-    pub day: i8,
-}
-impl fmt::Display for Date {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:04}-{:02}-{:02}", self.year, self.month, self.day)
-    }
-}
-impl From<jiff::civil::Date> for Date {
-    fn from(date: jiff::civil::Date) -> Self {
-        Date {
-            year: date.year(),
-            month: date.month(),
-            day: date.day(),
-        }
-    }
-}
-#[cfg(feature = "chrono")]
-impl From<chrono::NaiveDate> for Date {
-    fn from(date: chrono::NaiveDate) -> Self {
-        use chrono::Datelike;
-        Date {
-            year: date.year() as i16,
-            month: date.month() as i8,
-            day: date.day() as i8,
-        }
-    }
-}
 
 #[derive(Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -115,11 +82,21 @@ impl<T: Aggregate> CompactedData<T> {
 
         // Remove data no longer covered by any policy
         let up_to = date - jiff::Span::new().days(policy.max_retention);
-        self.discard(up_to.into());
+        let up_to = Date {
+            year: up_to.year(),
+            month: up_to.month(),
+            day: up_to.day(),
+        };
+        self.discard(up_to);
 
         for (days, res) in &policy.compaction_rules {
             let up_to = date - jiff::Span::new().days(*days);
-            self.compact(up_to.into(), *res);
+            let up_to = Date {
+                year: up_to.year(),
+                month: up_to.month(),
+                day: up_to.day(),
+            };
+            self.compact(up_to, *res);
         }
     }
 }
@@ -238,7 +215,6 @@ fn vec_splice() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jiff::civil::date;
 
     #[test]
     fn test_dominated_policies() {
@@ -283,6 +259,9 @@ mod tests {
             .with_minute(m)
             .with_second(s)
     }
+    fn date(year: i16, month: i8, day: i8) -> Date {
+        Date { year, month, day }
+    }
 
     #[test]
     fn test_one_day() -> Result<(), PushError> {
@@ -295,21 +274,21 @@ mod tests {
         agg.push(date(2023, 1, 1), time(13, 3, 0), vec![3])?;
         assert_eq!(
             agg.data.0,
-            vec![(date(2023, 1, 1).into(), ResTime::WHOLE_DAY, vec![1, 2, 3])]
+            vec![(date(2023, 1, 1), ResTime::WHOLE_DAY, vec![1, 2, 3])]
         );
         agg.push(date(2023, 1, 2), time(13, 1, 0), vec![1])?;
         agg.push(date(2023, 1, 2), time(13, 2, 0), vec![2])?;
         agg.push(date(2023, 1, 2), time(13, 3, 0), vec![3])?;
         assert_eq!(
             agg.data.0,
-            vec![(date(2023, 1, 2).into(), ResTime::WHOLE_DAY, vec![1, 2, 3])]
+            vec![(date(2023, 1, 2), ResTime::WHOLE_DAY, vec![1, 2, 3])]
         );
         agg.push(date(2023, 1, 3), time(13, 1, 0), vec![1])?;
         agg.push(date(2023, 1, 3), time(13, 2, 0), vec![2])?;
         agg.push(date(2023, 1, 3), time(13, 3, 0), vec![3])?;
         assert_eq!(
             agg.data.0,
-            vec![(date(2023, 1, 3).into(), ResTime::WHOLE_DAY, vec![1, 2, 3])]
+            vec![(date(2023, 1, 3), ResTime::WHOLE_DAY, vec![1, 2, 3])]
         );
         Ok(())
     }
@@ -325,7 +304,7 @@ mod tests {
         agg.push(date(2023, 1, 1), time(13, 3, 0), vec![3])?;
         assert_eq!(
             agg.data.0,
-            vec![(date(2023, 1, 1).into(), ResTime::WHOLE_DAY, vec![1, 2, 3])]
+            vec![(date(2023, 1, 1), ResTime::WHOLE_DAY, vec![1, 2, 3])]
         );
         agg.push(date(2023, 1, 2), time(13, 1, 0), vec![1])?;
         agg.push(date(2023, 1, 2), time(13, 2, 0), vec![2])?;
