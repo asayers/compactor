@@ -104,6 +104,7 @@ impl<T: Aggregate> CompactedData<T> {
     }
 }
 
+/// Stores data at gradually diminishing resolution
 #[derive(Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Compactor<T> {
