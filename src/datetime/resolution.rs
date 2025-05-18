@@ -31,7 +31,7 @@ use std::{ops::Div, time::Duration};
 pub enum Resolution {
     Day,
     AmPm,
-    TimeOfDay,
+    SixHour,
     ThreeHour,
     Hour,
     ThirtyMinute,
@@ -55,7 +55,7 @@ impl fmt::Display for Resolution {
         match self {
             Resolution::Day => f.write_str("day"),
             Resolution::AmPm => f.write_str("AM/PM"),
-            Resolution::TimeOfDay => f.write_str("6h"),
+            Resolution::SixHour => f.write_str("6h"),
             Resolution::ThreeHour => f.write_str("3h"),
             Resolution::Hour => f.write_str("hour"),
             Resolution::ThirtyMinute => f.write_str("30m"),
@@ -81,7 +81,7 @@ impl Resolution {
         match self {
             Resolution::Day => Duration::from_secs(24 * 60 * 60),
             Resolution::AmPm => Duration::from_secs(12 * 60 * 60),
-            Resolution::TimeOfDay => Duration::from_secs(6 * 60 * 60),
+            Resolution::SixHour => Duration::from_secs(6 * 60 * 60),
             Resolution::ThreeHour => Duration::from_secs(3 * 60 * 60),
             Resolution::Hour => Duration::from_secs(60 * 60),
             Resolution::ThirtyMinute => Duration::from_secs(30 * 60),
@@ -149,7 +149,7 @@ impl Resolution {
         match self {
             Resolution::Day => 0,
             Resolution::AmPm => 2,
-            Resolution::TimeOfDay => 2,
+            Resolution::SixHour => 2,
             Resolution::ThreeHour => 2,
             Resolution::Hour => 3,
             Resolution::ThirtyMinute => 2,
@@ -173,7 +173,7 @@ impl Resolution {
         match self {
             Resolution::Day => 0,
             Resolution::AmPm => 1,
-            Resolution::TimeOfDay => 1,
+            Resolution::SixHour => 1,
             Resolution::ThreeHour => 1,
             Resolution::Hour => 2,
             Resolution::ThirtyMinute => 1,
@@ -197,7 +197,7 @@ impl Resolution {
         match self {
             Resolution::Day => 31,
             Resolution::AmPm => 30,
-            Resolution::TimeOfDay => 29,
+            Resolution::SixHour => 29,
             Resolution::ThreeHour => 28,
             Resolution::Hour => 26,
             Resolution::ThirtyMinute => 25,
@@ -235,7 +235,7 @@ impl Resolution {
             25 => Resolution::ThirtyMinute,
             26 => Resolution::Hour,
             28 => Resolution::ThreeHour,
-            29 => Resolution::TimeOfDay,
+            29 => Resolution::SixHour,
             30 => Resolution::AmPm,
             31 => Resolution::Day,
             _ => panic!(),

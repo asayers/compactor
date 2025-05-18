@@ -17,7 +17,7 @@ let mut compactor = Compactor::<MyData>::new()
 # }
 ```
 
-...and how to compact your data, like this:
+You specify how to compact your data, like this:
 
 ```rust
 # use compactor::Aggregate;
@@ -34,28 +34,24 @@ impl Aggregate for MyData {
 
 ...and then you can start pushing data into the compactor.
 
-Initially, data will be stored at "five-minute" resolution, meaning that
-pushed values will be merged into the previous value if they belong to the same
-five-minute bucket.  After 7 days, the data will be compacted further, down
-to "one-hour" resolution.  This means that any values within the same one-hour
-bucket (up to 12 values) will be merged into a single value.  Data older than
-30 days will be compacted again, and finally data older than 100 days will be
-deleted.
+In this example, data will initially be stored at "five-minute" resolution,
+meaning that pushed values will be merged into the previous value if they belong
+to the same five-minute bucket.
+
+After 7 days, the data will be compacted further, down to "one-hour" resolution.
+This means that any values within the same one-hour bucket will be merged into
+a single value.  Data older than 30 days will be compacted again.  Finally, data
+older than 100 days will be deleted.
 
 */
 
 mod compactor;
-mod date;
+mod data;
+pub mod datetime;
 pub mod policy;
-mod resolution;
-mod time;
-mod types;
 
-pub use crate::compactor::Compactor;
-pub use crate::date::Date;
-pub use crate::resolution::Resolution;
-pub use crate::time::ResTime;
-pub use crate::types::{AmPm, TimeOfDay};
+pub use crate::compactor::{Compactor, CompactorBuilder};
+pub use crate::datetime::{Date, Resolution, Time};
 
 /// aka. `Semigroup` in Haskell-speak
 pub trait Aggregate: Sized {

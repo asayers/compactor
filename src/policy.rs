@@ -119,4 +119,41 @@ mod tests {
             →  (30d) hour →  (90d) AM/PM →  (180d) day →  (365d) delete"
         );
     }
+
+    #[test]
+    fn test_dominated_policies() {
+        assert!(
+            PolicyBuilder::default()
+                .keep_for_days(5, Resolution::Hour)
+                .keep_for_days(2, Resolution::AmPm)
+                .build()
+                .is_err()
+        );
+        assert!(
+            PolicyBuilder::default()
+                .keep_for_days(2, Resolution::AmPm)
+                .keep_for_days(5, Resolution::Hour)
+                .build()
+                .is_err()
+        );
+        assert!(
+            PolicyBuilder::default()
+                .keep_for_days(2, Resolution::Hour)
+                .keep_for_days(2, Resolution::AmPm)
+                .build()
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn test_duplicate_policies() {
+        let x = PolicyBuilder::default()
+            .keep_for_days(2, Resolution::Hour)
+            .keep_for_days(2, Resolution::Hour)
+            .build();
+        let y = PolicyBuilder::default()
+            .keep_for_days(2, Resolution::Hour)
+            .build();
+        assert_eq!(x, y);
+    }
 }

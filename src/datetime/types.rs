@@ -2,7 +2,7 @@ use core::fmt;
 use linearize::Linearize;
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Linearize)]
-pub enum TimeOfDay {
+pub enum SixHour {
     /// 24:00--06:00
     Night,
     /// 06:00--12:00
@@ -13,35 +13,35 @@ pub enum TimeOfDay {
     Evening,
 }
 
-impl fmt::Display for TimeOfDay {
+impl fmt::Display for SixHour {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TimeOfDay::Night => f.write_str("night"),
-            TimeOfDay::Morning => f.write_str("morning"),
-            TimeOfDay::Afternoon => f.write_str("afternoon"),
-            TimeOfDay::Evening => f.write_str("evening"),
+            SixHour::Night => f.write_str("night"),
+            SixHour::Morning => f.write_str("morning"),
+            SixHour::Afternoon => f.write_str("afternoon"),
+            SixHour::Evening => f.write_str("evening"),
         }
     }
 }
-impl TryFrom<u8> for TimeOfDay {
+impl TryFrom<u8> for SixHour {
     type Error = ();
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(TimeOfDay::Night),
-            1 => Ok(TimeOfDay::Morning),
-            2 => Ok(TimeOfDay::Afternoon),
-            3 => Ok(TimeOfDay::Evening),
+            0 => Ok(SixHour::Night),
+            1 => Ok(SixHour::Morning),
+            2 => Ok(SixHour::Afternoon),
+            3 => Ok(SixHour::Evening),
             _ => Err(()),
         }
     }
 }
-impl From<TimeOfDay> for u8 {
-    fn from(value: TimeOfDay) -> Self {
+impl From<SixHour> for u8 {
+    fn from(value: SixHour) -> Self {
         match value {
-            TimeOfDay::Night => 0,
-            TimeOfDay::Morning => 1,
-            TimeOfDay::Afternoon => 2,
-            TimeOfDay::Evening => 3,
+            SixHour::Night => 0,
+            SixHour::Morning => 1,
+            SixHour::Afternoon => 2,
+            SixHour::Evening => 3,
         }
     }
 }

@@ -1,5 +1,8 @@
 use core::fmt;
 
+/// Just a date
+///
+/// Nothing interesting about this.  It's just a date.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Date {

@@ -1,108 +1,9 @@
 use crate::{
-    Aggregate, Date, ResTime, Resolution,
+    Aggregate, Date, Resolution, Time,
+    data::*,
     policy::{Policy, PolicyBuilder, PolicyError},
 };
-use core::fmt;
 use std::{cmp::Ordering, marker::PhantomData};
-
-#[derive(Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-// TODO: RLE the dates?
-pub struct CompactedData<T>(Vec<(Date, ResTime, T)>);
-
-impl<T> Default for CompactedData<T> {
-    fn default() -> Self {
-        Self(Default::default())
-    }
-}
-
-impl<T: fmt::Debug> fmt::Debug for CompactedData<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut map = f.debug_map();
-        for (date, time, x) in &self.0 {
-            map.entry(&format_args!("{date} {time}"), x);
-        }
-        map.finish()
-    }
-}
-
-impl<T: Aggregate> CompactedData<T> {
-    /// Remove data on days up to and including `up_to`
-    fn discard(&mut self, up_to: Date) {
-        let remove = self
-            .0
-            .iter()
-            .position(|x| x.0 > up_to)
-            .unwrap_or(self.0.len());
-        self.0.splice(0..remove, []);
-    }
-
-    /// Compact data on days up to and including `up_to`, reducing the
-    /// resolution to (at most) `res`
-    fn compact(&mut self, up_to: Date, res: Resolution) {
-        let mut start = None;
-        let mut end = None;
-        for (i, x) in self.0.iter().enumerate() {
-            if x.1.resolution() <= res {
-                // Already compacted - skip
-                continue;
-            }
-            if x.0 > up_to {
-                // Out of range
-                break;
-            }
-            start = start.or(Some(i));
-            end = Some(i);
-        }
-        let Some((start, end)) = start.zip(end) else {
-            return;
-        };
-        let mut merged: Vec<(Date, ResTime, T)> = vec![];
-        for (date, mut time, agg) in self.0.splice(start..=end, []) {
-            time.reduce_to(res);
-            if let Some(head) = merged.last_mut() {
-                if head.0 == date && head.1 == time {
-                    head.2.merge(agg);
-                    continue;
-                }
-            }
-            merged.push((date, time, agg));
-        }
-        self.0.splice(start..start, merged);
-
-        // Sanity check:
-        for (date, time, _) in &self.0 {
-            if *date <= up_to {
-                assert!(time.resolution() <= res);
-            }
-        }
-    }
-
-    // TODO: The compactions could be combined... but it doesn't matter: this
-    // isn't the fast path
-    fn apply_policy(&mut self, policy: &Policy, date: Date) {
-        let date = jiff::civil::date(date.year, date.month, date.day);
-
-        // Remove data no longer covered by any policy
-        let up_to = date - jiff::Span::new().days(policy.max_retention);
-        let up_to = Date {
-            year: up_to.year(),
-            month: up_to.month(),
-            day: up_to.day(),
-        };
-        self.discard(up_to);
-
-        for (days, res) in &policy.compaction_rules {
-            let up_to = date - jiff::Span::new().days(*days);
-            let up_to = Date {
-                year: up_to.year(),
-                month: up_to.month(),
-                day: up_to.day(),
-            };
-            self.compact(up_to, *res);
-        }
-    }
-}
 
 /// Stores data at gradually diminishing resolution
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -144,23 +45,6 @@ impl<T> Compactor<T> {
     pub fn new() -> CompactorBuilder<T> {
         CompactorBuilder::default()
     }
-
-    pub fn policy(&self) -> &Policy {
-        &self.policy
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.data.0.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.data.0.len()
-    }
-
-    /// Goes from old -> new
-    pub fn iter(&self) -> impl DoubleEndedIterator<Item = (Date, ResTime, &T)> {
-        self.data.0.iter().map(|(d, t, x)| (*d, *t, x))
-    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -172,7 +56,7 @@ impl<T: Aggregate> Compactor<T> {
     pub fn push(
         &mut self,
         date: impl Into<Date>,
-        time: impl Into<ResTime>,
+        time: impl Into<Time>,
         x: T,
     ) -> Result<(), PushError> {
         let date = date.into();
@@ -210,81 +94,42 @@ impl<T: Aggregate> Compactor<T> {
         }
         Ok(())
     }
-}
 
-/*
-struct Replacement<T>(std::rc::Rc<std::cell::Cell<Option<I>>>);
-impl<T> IntoIterator for Replacement<T> {
-    type Item = T;
-    type IntoIter = std::vec::IntoIter<T>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.take().unwrap().into_iter()
+    /// Update the current date without pushing any new data.  This can be used
+    /// to force compaction.
+    pub fn update_date(&mut self, date: impl Into<Date>) {
+        let date = date.into();
+        if self.data.0.last_mut().is_some_and(|last| date > last.0) {
+            self.data.apply_policy(&self.policy, date);
+        }
     }
 }
-struct BetterSplice<I>(std::vec::Splice<Replacement<I>>);
 
-impl<T> BetterSplice<T> {
-    fn finish(self, xs: impl IntoIterator<Item = T>) {}
-}
+impl<T> Compactor<T> {
+    pub fn policy(&self) -> &Policy {
+        &self.policy
+    }
 
-fn vec_splice() {
-        let replacement = Replacement(std::rc::Rc::new(std::cell::Cell::new(None)));
-        let mut iter = self
-            .0
-            .splice(start..=end, Replacement(replacement.0.clone()));
-        let xs = vec![];
-        while let Some(x) = iter.next() {}
-        replacement.0.set(Some(xs));
-        std::mem::drop(iter);
+    pub fn is_empty(&self) -> bool {
+        self.data.0.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.0.len()
+    }
+
+    /// Goes from old -> new
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = (Date, Time, &T)> {
+        self.data.0.iter().map(|(d, t, x)| (*d, *t, x))
+    }
 }
-*/
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_dominated_policies() {
-        assert!(
-            Compactor::<()>::new()
-                .keep_for_days(5, Resolution::Hour)
-                .keep_for_days(2, Resolution::AmPm)
-                .build()
-                .is_err()
-        );
-        assert!(
-            Compactor::<()>::new()
-                .keep_for_days(2, Resolution::AmPm)
-                .keep_for_days(5, Resolution::Hour)
-                .build()
-                .is_err()
-        );
-        assert!(
-            Compactor::<()>::new()
-                .keep_for_days(2, Resolution::Hour)
-                .keep_for_days(2, Resolution::AmPm)
-                .build()
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn test_duplicate_policies() {
-        let x = Compactor::<()>::new()
-            .keep_for_days(2, Resolution::Hour)
-            .keep_for_days(2, Resolution::Hour)
-            .build();
-        let y = Compactor::<()>::new()
-            .keep_for_days(2, Resolution::Hour)
-            .build();
-        assert_eq!(x, y);
-    }
-
-    fn time(h: u8, m: u8, s: u8) -> ResTime {
-        ResTime::default()
-            .with_hour(h)
-            .with_minute(m)
-            .with_second(s)
+    fn time(h: u8, m: u8, s: u8) -> Time {
+        Time::default().with_hour(h).with_minute(m).with_second(s)
     }
     fn date(year: i16, month: i8, day: i8) -> Date {
         Date { year, month, day }
@@ -301,21 +146,21 @@ mod tests {
         agg.push(date(2023, 1, 1), time(13, 3, 0), vec![3])?;
         assert_eq!(
             agg.data.0,
-            vec![(date(2023, 1, 1), ResTime::WHOLE_DAY, vec![1, 2, 3])]
+            vec![(date(2023, 1, 1), Time::WHOLE_DAY, vec![1, 2, 3])]
         );
         agg.push(date(2023, 1, 2), time(13, 1, 0), vec![1])?;
         agg.push(date(2023, 1, 2), time(13, 2, 0), vec![2])?;
         agg.push(date(2023, 1, 2), time(13, 3, 0), vec![3])?;
         assert_eq!(
             agg.data.0,
-            vec![(date(2023, 1, 2), ResTime::WHOLE_DAY, vec![1, 2, 3])]
+            vec![(date(2023, 1, 2), Time::WHOLE_DAY, vec![1, 2, 3])]
         );
         agg.push(date(2023, 1, 3), time(13, 1, 0), vec![1])?;
         agg.push(date(2023, 1, 3), time(13, 2, 0), vec![2])?;
         agg.push(date(2023, 1, 3), time(13, 3, 0), vec![3])?;
         assert_eq!(
             agg.data.0,
-            vec![(date(2023, 1, 3), ResTime::WHOLE_DAY, vec![1, 2, 3])]
+            vec![(date(2023, 1, 3), Time::WHOLE_DAY, vec![1, 2, 3])]
         );
         Ok(())
     }
@@ -331,7 +176,7 @@ mod tests {
         agg.push(date(2023, 1, 1), time(13, 3, 0), vec![3])?;
         assert_eq!(
             agg.data.0,
-            vec![(date(2023, 1, 1), ResTime::WHOLE_DAY, vec![1, 2, 3])]
+            vec![(date(2023, 1, 1), Time::WHOLE_DAY, vec![1, 2, 3])]
         );
         agg.push(date(2023, 1, 2), time(13, 1, 0), vec![1])?;
         agg.push(date(2023, 1, 2), time(13, 2, 0), vec![2])?;
@@ -339,8 +184,8 @@ mod tests {
         assert_eq!(
             agg.data.0,
             vec![
-                (date(2023, 1, 1), ResTime::WHOLE_DAY, vec![1, 2, 3]),
-                (date(2023, 1, 2), ResTime::WHOLE_DAY, vec![1, 2, 3])
+                (date(2023, 1, 1), Time::WHOLE_DAY, vec![1, 2, 3]),
+                (date(2023, 1, 2), Time::WHOLE_DAY, vec![1, 2, 3])
             ]
         );
         agg.push(date(2023, 1, 3), time(13, 1, 0), vec![1])?;
@@ -349,8 +194,8 @@ mod tests {
         assert_eq!(
             agg.data.0,
             vec![
-                (date(2023, 1, 2), ResTime::WHOLE_DAY, vec![1, 2, 3]),
-                (date(2023, 1, 3), ResTime::WHOLE_DAY, vec![1, 2, 3])
+                (date(2023, 1, 2), Time::WHOLE_DAY, vec![1, 2, 3]),
+                (date(2023, 1, 3), Time::WHOLE_DAY, vec![1, 2, 3])
             ]
         );
         Ok(())
@@ -368,8 +213,8 @@ mod tests {
         assert_eq!(
             agg.data.0,
             vec![
-                (date(2023, 1, 1), ResTime::AM, vec![1]),
-                (date(2023, 1, 1), ResTime::PM, vec![2]),
+                (date(2023, 1, 1), Time::AM, vec![1]),
+                (date(2023, 1, 1), Time::PM, vec![2]),
             ]
         );
         agg.push(date(2023, 1, 2), time(11, 0, 0), vec![1])?;
@@ -377,9 +222,9 @@ mod tests {
         assert_eq!(
             agg.data.0,
             vec![
-                (date(2023, 1, 1), ResTime::WHOLE_DAY, vec![1, 2]),
-                (date(2023, 1, 2), ResTime::AM, vec![1]),
-                (date(2023, 1, 2), ResTime::PM, vec![2]),
+                (date(2023, 1, 1), Time::WHOLE_DAY, vec![1, 2]),
+                (date(2023, 1, 2), Time::AM, vec![1]),
+                (date(2023, 1, 2), Time::PM, vec![2]),
             ]
         );
         agg.push(date(2023, 1, 3), time(11, 0, 0), vec![1])?;
@@ -387,9 +232,9 @@ mod tests {
         assert_eq!(
             agg.data.0,
             vec![
-                (date(2023, 1, 2), ResTime::WHOLE_DAY, vec![1, 2]),
-                (date(2023, 1, 3), ResTime::AM, vec![1]),
-                (date(2023, 1, 3), ResTime::PM, vec![2]),
+                (date(2023, 1, 2), Time::WHOLE_DAY, vec![1, 2]),
+                (date(2023, 1, 3), Time::AM, vec![1]),
+                (date(2023, 1, 3), Time::PM, vec![2]),
             ]
         );
         Ok(())
@@ -408,8 +253,8 @@ mod tests {
         assert_eq!(
             agg.data.0,
             vec![
-                (date(2023, 1, 1), ResTime::from_hour(11), vec![1]),
-                (date(2023, 1, 1), ResTime::from_hour(13), vec![2]),
+                (date(2023, 1, 1), Time::from_hour(11), vec![1]),
+                (date(2023, 1, 1), Time::from_hour(13), vec![2]),
             ]
         );
         agg.push(date(2023, 1, 2), time(11, 0, 0), vec![1])?;
@@ -417,10 +262,10 @@ mod tests {
         assert_eq!(
             agg.data.0,
             vec![
-                (date(2023, 1, 1), ResTime::AM, vec![1]),
-                (date(2023, 1, 1), ResTime::PM, vec![2]),
-                (date(2023, 1, 2), ResTime::from_hour(11), vec![1]),
-                (date(2023, 1, 2), ResTime::from_hour(13), vec![2]),
+                (date(2023, 1, 1), Time::AM, vec![1]),
+                (date(2023, 1, 1), Time::PM, vec![2]),
+                (date(2023, 1, 2), Time::from_hour(11), vec![1]),
+                (date(2023, 1, 2), Time::from_hour(13), vec![2]),
             ]
         );
         agg.push(date(2023, 1, 3), time(11, 0, 0), vec![1])?;
@@ -428,11 +273,11 @@ mod tests {
         assert_eq!(
             agg.data.0,
             vec![
-                (date(2023, 1, 1), ResTime::WHOLE_DAY, vec![1, 2]),
-                (date(2023, 1, 2), ResTime::AM, vec![1]),
-                (date(2023, 1, 2), ResTime::PM, vec![2]),
-                (date(2023, 1, 3), ResTime::from_hour(11), vec![1]),
-                (date(2023, 1, 3), ResTime::from_hour(13), vec![2]),
+                (date(2023, 1, 1), Time::WHOLE_DAY, vec![1, 2]),
+                (date(2023, 1, 2), Time::AM, vec![1]),
+                (date(2023, 1, 2), Time::PM, vec![2]),
+                (date(2023, 1, 3), Time::from_hour(11), vec![1]),
+                (date(2023, 1, 3), Time::from_hour(13), vec![2]),
             ]
         );
         agg.push(date(2023, 1, 4), time(11, 0, 0), vec![1])?;
@@ -440,11 +285,11 @@ mod tests {
         assert_eq!(
             agg.data.0,
             vec![
-                (date(2023, 1, 2), ResTime::WHOLE_DAY, vec![1, 2]),
-                (date(2023, 1, 3), ResTime::AM, vec![1]),
-                (date(2023, 1, 3), ResTime::PM, vec![2]),
-                (date(2023, 1, 4), ResTime::from_hour(11), vec![1]),
-                (date(2023, 1, 4), ResTime::from_hour(13), vec![2]),
+                (date(2023, 1, 2), Time::WHOLE_DAY, vec![1, 2]),
+                (date(2023, 1, 3), Time::AM, vec![1]),
+                (date(2023, 1, 3), Time::PM, vec![2]),
+                (date(2023, 1, 4), Time::from_hour(11), vec![1]),
+                (date(2023, 1, 4), Time::from_hour(13), vec![2]),
             ]
         );
         Ok(())
@@ -461,7 +306,7 @@ mod tests {
         let mut simple = vec![];
         for d in 10..20 {
             let date = date(2023, 1, d);
-            let t = ResTime::default();
+            let t = Time::default();
             for h in 8..15 {
                 let x = d as u32 * 100 + h as u32;
                 agg.push(date, t.with_hour(h), vec![x]).unwrap();
@@ -493,7 +338,7 @@ mod tests {
         eprintln!("{agg:#?}");
         {
             let date = date(2023, 1, 21);
-            let t = ResTime::default();
+            let t = Time::default();
             for h in 8..15 {
                 let x = 21 as u32 * 100 + h as u32;
                 agg.push(date, t.with_hour(h), vec![x]).unwrap();
