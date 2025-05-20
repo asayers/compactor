@@ -45,22 +45,12 @@ older than 100 days will be deleted.
 
 */
 
+pub mod aggregate;
 mod compactor;
 mod data;
 pub mod datetime;
 pub mod policy;
 
+pub use crate::aggregate::Aggregate;
 pub use crate::compactor::{Compactor, CompactorBuilder};
 pub use crate::datetime::{Date, Resolution, Time};
-
-/// aka. `Semigroup` in Haskell-speak
-pub trait Aggregate: Sized {
-    /// Does **not** need to be commutative
-    fn merge(&mut self, other: Self);
-}
-
-impl<T> Aggregate for Vec<T> {
-    fn merge(&mut self, mut other: Self) {
-        self.append(&mut other);
-    }
-}
