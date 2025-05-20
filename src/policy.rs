@@ -36,6 +36,19 @@ impl Policy {
     pub fn new() -> PolicyBuilder {
         PolicyBuilder::default()
     }
+
+    pub fn resolutions(&self) -> impl Iterator<Item = Resolution> {
+        [self.max_res]
+            .into_iter()
+            .chain(self.compaction_rules.iter().map(|(_, res)| *res))
+    }
+
+    pub fn compaction_points(&self) -> impl Iterator<Item = Days> {
+        self.compaction_rules
+            .iter()
+            .map(|(days, _)| *days)
+            .chain([self.max_retention])
+    }
 }
 
 #[derive(Default)]
