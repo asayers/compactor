@@ -118,6 +118,29 @@ impl<T> Compactor<T> {
         self.data.0.len()
     }
 
+    // TODO: We can bound the size of this using the policy
+    // TODO: RLEing the dates would make this efficient
+    pub fn per_resolution(&self) -> impl Iterator<Item = (Resolution, usize)> {
+        let mut prev_res = Resolution::Day;
+        let mut res_n = 0;
+        self.iter().filter_map(move |(_, t, _)| {
+            let res = t.resolution();
+            if res == prev_res {
+                res_n += 1;
+                None
+            } else {
+                let x = if res_n != 0 {
+                    Some((prev_res, res_n))
+                } else {
+                    None
+                };
+                prev_res = res;
+                res_n = 1;
+                x
+            }
+        })
+    }
+
     /// Goes from old -> new
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = (Date, Time, &T)> {
         self.data.0.iter().map(|(d, t, x)| (*d, *t, x))
