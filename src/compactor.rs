@@ -124,6 +124,17 @@ impl<T> Compactor<T> {
     }
 }
 
+// Should this be `where &T: Aggregate` instead?
+impl<T: Aggregate + Clone> Compactor<T> {
+    /// Goes from old -> new
+    pub fn iter_with_max_resolution(
+        &self,
+        res: Resolution,
+    ) -> impl Iterator<Item = (Date, Time, T)> {
+        with_max_res(res, self.data.0.iter().map(|(d, t, x)| (*d, *t, x.clone())))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

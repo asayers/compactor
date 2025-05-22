@@ -30,7 +30,7 @@ impl<T: Aggregate> CompactedData<T> {
             .iter()
             .position(|x| x.0 > up_to)
             .unwrap_or(self.0.len());
-        self.0.splice(0..remove, []);
+        self.0.drain(..remove);
     }
 
     /// Compact data on days up to and including `up_to`, reducing the
@@ -53,17 +53,7 @@ impl<T: Aggregate> CompactedData<T> {
         let Some((start, end)) = start.zip(end) else {
             return;
         };
-        let mut merged: Vec<(Date, Time, T)> = vec![];
-        for (date, mut time, agg) in self.0.splice(start..=end, []) {
-            time.reduce_to(res);
-            if let Some(head) = merged.last_mut() {
-                if head.0 == date && head.1 == time {
-                    head.2.merge(agg);
-                    continue;
-                }
-            }
-            merged.push((date, time, agg));
-        }
+        let merged = with_max_res(res, self.0.splice(start..=end, [])).collect::<Vec<_>>();
         self.0.splice(start..start, merged);
 
         // Sanity check:
@@ -98,6 +88,26 @@ impl<T: Aggregate> CompactedData<T> {
             self.compact(up_to, *res);
         }
     }
+}
+
+pub(crate) fn with_max_res<T: Aggregate>(
+    res: Resolution,
+    xs: impl Iterator<Item = (Date, Time, T)>,
+) -> impl Iterator<Item = (Date, Time, T)> {
+    let mut cur: Option<(Date, Time, T)> = None;
+    xs.map(Some).chain([None]).filter_map(move |x| match x {
+        Some((date, mut time, x)) => {
+            time.reduce_to(res);
+            if let Some(cur) = &mut cur {
+                if cur.0 == date && cur.1 == time {
+                    cur.2.merge(x);
+                    return None;
+                }
+            }
+            cur.replace((date, time, x))
+        }
+        None => cur.take(),
+    })
 }
 
 /*
