@@ -42,6 +42,7 @@ impl<T> CompactorBuilder<T> {
 }
 
 impl<T> Compactor<T> {
+    #[allow(clippy::new_ret_no_self)]
     pub fn new() -> CompactorBuilder<T> {
         CompactorBuilder::default()
     }
@@ -374,7 +375,7 @@ mod tests {
             let date = date(2023, 1, 21);
             let t = Time::default();
             for h in 8..15 {
-                let x = 21 as u32 * 100 + h as u32;
+                let x = 21 * 100 + h as u32;
                 agg.push(date, t.with_hour(h), vec![x]).unwrap();
                 simple.push(x);
             }

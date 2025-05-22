@@ -33,6 +33,7 @@ impl fmt::Display for Policy {
 }
 
 impl Policy {
+    #[allow(clippy::new_ret_no_self)]
     pub fn new() -> PolicyBuilder {
         PolicyBuilder::default()
     }

@@ -285,10 +285,10 @@ impl Time {
 fn set_res_bits(bits: &mut u32, res: Resolution, x: &mut u32) {
     // Clear the range.  There shouldn't be any actual data there, but the
     // "data starts here" marker bit might be in here.
-    let mask = !(u32::MAX << res.n_bits()) << res.trailing_zeros() + 1;
+    let mask = !(u32::MAX << res.n_bits()) << (res.trailing_zeros() + 1);
     *bits &= !mask;
     let subdivision = res.subdivision() as u32;
-    *bits |= (*x % subdivision) << res.trailing_zeros() + 1;
+    *bits |= (*x % subdivision) << (res.trailing_zeros() + 1);
     *x /= subdivision;
 }
 

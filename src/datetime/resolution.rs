@@ -132,6 +132,7 @@ impl Resolution {
     }
 }
 
+#[allow(clippy::suspicious_arithmetic_impl)]
 impl Div for Resolution {
     type Output = u32;
 
@@ -276,7 +277,7 @@ mod tests {
     #[test]
     fn test_mask() {
         let mask =
-            |res: Resolution| -> u32 { !(u32::MAX << res.n_bits()) << res.trailing_zeros() + 1 };
+            |res: Resolution| -> u32 { !(u32::MAX << res.n_bits()) << (res.trailing_zeros() + 1) };
         assert_eq!(mask(Resolution::Second), 0b1110_000000000000);
         assert_eq!(mask(Resolution::FiveSecond), 0b110000_000000000000);
         assert_eq!(mask(Resolution::FifteenSecond), 0b1000000_000000000000);
