@@ -23,16 +23,20 @@ impl<T> Aggregate for Vec<T> {
 }
 
 pub struct Min<T>(pub T);
-impl Aggregate for Min<f64> {
+impl<T: PartialOrd> Aggregate for Min<T> {
     fn merge(&mut self, other: Self) {
-        self.0 = self.0.min(other.0);
+        if self.0 > other.0 {
+            *self = other;
+        }
     }
 }
 
 pub struct Max<T>(pub T);
-impl Aggregate for Max<f64> {
+impl<T: PartialOrd> Aggregate for Max<T> {
     fn merge(&mut self, other: Self) {
-        self.0 = self.0.max(other.0);
+        if self.0 < other.0 {
+            *self = other;
+        }
     }
 }
 
@@ -68,7 +72,7 @@ impl<T: Clone> From<T> for Candlestick<T> {
     }
 }
 
-impl Aggregate for Candlestick<f64> {
+impl<T: PartialOrd> Aggregate for Candlestick<T> {
     fn merge(&mut self, other: Self) {
         self.first.merge(other.first);
         self.last.merge(other.last);
